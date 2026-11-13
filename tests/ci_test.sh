@@ -184,11 +184,22 @@ echo "rc=$rc"
 cat /tmp/gui.log
 if [ "$rc" -ge 128 ]; then
     echo '--- crash diagnostics ---'
-    pacman -S --noconfirm --needed gdb >/dev/null 2>&1
-    DISPLAY=:99 QT_QPA_PLATFORM=xcb QT_XCB_GL_INTEGRATION=none ./squashfs-root/AppRun --selftest; echo "without GL integration rc=$?"
     PY=$(ls -d squashfs-root/opt/python/bin/python3)
-    DISPLAY=:99 QT_QPA_PLATFORM=xcb QT_DEBUG_PLUGINS=0 LD_LIBRARY_PATH=/tmp/squashfs-root/usr/lib/gui \
-        gdb -batch -ex run -ex bt --args "$PY" -s -E squashfs-root/usr/share/winusb/winusb_gui.py --selftest 2>&1 | tail -40
+    G=/tmp/squashfs-root/usr/lib/gui
+    echo '>> python faulthandler:'
+    DISPLAY=:99 QT_QPA_PLATFORM=xcb LD_LIBRARY_PATH=$G "$PY" -X faulthandler -s -E squashfs-root/usr/share/winusb/winusb_gui.py --selftest 2>&1 | tail -30
+    echo '>> minimal Qt window:'
+    DISPLAY=:99 QT_QPA_PLATFORM=xcb LD_LIBRARY_PATH=$G "$PY" -X faulthandler -c "
+from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtCore import QTimer
+a=QApplication([]); l=QLabel('hi'); l.show(); QTimer.singleShot(500,a.quit); a.exec(); print('MINIMAL_OK')" 2>&1 | tail -15
+    echo '>> with Arch xcb-util libs instead of bundled:'
+    pacman -S --noconfirm --needed xcb-util xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm libsm libice 2>&1 | tail -1
+    DISPLAY=:99 QT_QPA_PLATFORM=xcb "$PY" -X faulthandler -s -E squashfs-root/usr/share/winusb/winusb_gui.py --selftest 2>&1 | tail -15
+    echo '>> gdb:'
+    pacman -S --noconfirm --needed gdb 2>&1 | tail -1
+    DISPLAY=:99 QT_QPA_PLATFORM=xcb LD_LIBRARY_PATH=$G gdb -q -batch -ex run -ex bt \
+        --args "$PY" -s -E squashfs-root/usr/share/winusb/winusb_gui.py --selftest 2>&1 | grep -E '^#|signal' | head -25
 fi
 grep -q 'GUI_SELFTEST_OK.*platform=xcb' /tmp/gui.log || exit 1
 echo '--- same through the AppImage runtime (extract-and-run) ---'
