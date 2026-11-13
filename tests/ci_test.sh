@@ -157,28 +157,35 @@ docker run --rm -v "$WORK:$WORK" -v "$APPIMAGE:/app/WinUSB.AppImage:ro" archlinu
 " || fail "mode detection"
 
 step "GUI on a virtual X server inside Arch Linux"
-docker run --rm -v "$APPIMAGE:/app/WinUSB.AppImage:ro" archlinux:latest bash -euc "
-    pacman -Sy --noconfirm --needed xorg-server-xvfb xorg-xauth fontconfig ttf-dejavu mesa libglvnd \
-        libxkbcommon libx11 libxcb dbus glib2 xorg-xkbcomp xkeyboard-config >/dev/null
-    cd /tmp
-    /app/WinUSB.AppImage --appimage-extract >/dev/null
-    echo 'missing libraries of the Qt xcb plugin (should be none):'
-    for f in squashfs-root/opt/python/lib/python3*/site-packages/PySide6/Qt/plugins/platforms/libqxcb.so \
-             squashfs-root/opt/python/lib/python3*/site-packages/PySide6/Qt/lib/libQt6XcbQpa.so.6; do
-        ldd \$f | grep 'not found' || true
-    done
-    rm -rf squashfs-root
-    export APPIMAGE_EXTRACT_AND_RUN=1
-    set +e
-    QT_QPA_PLATFORM=offscreen /app/WinUSB.AppImage --selftest; echo \"offscreen rc=\$?\"
-    Xvfb :99 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
-    for i in \$(seq 1 50); do [ -e /tmp/.X11-unix/X99 ] && break; sleep 0.2; done
-    cat /tmp/xvfb.log
-    DISPLAY=:99 QT_QPA_PLATFORM=xcb timeout 60 /app/WinUSB.AppImage --selftest > /tmp/gui.log 2>&1
-    echo \"xcb rc=\$?\"
-    cat /tmp/gui.log
-    grep -q 'GUI_SELFTEST_OK.*platform=xcb' /tmp/gui.log
-" || fail "GUI did not start"
+cat > "$WORK/gui_test.sh" <<'EOS'
+#!/bin/bash
+set -u
+pacman -Sy --noconfirm --needed xorg-server-xvfb xorg-xauth fontconfig ttf-dejavu mesa libglvnd \
+    libxkbcommon libx11 libxcb dbus glib2 xorg-xkbcomp xkeyboard-config >/dev/null
+cd /tmp
+/app/WinUSB.AppImage --appimage-extract >/dev/null || exit 1
+echo 'missing libraries of the Qt xcb plugin (should be none):'
+for f in squashfs-root/opt/python/lib/python3*/site-packages/PySide6/Qt/plugins/platforms/libqxcb.so \
+         squashfs-root/opt/python/lib/python3*/site-packages/PySide6/Qt/lib/libQt6XcbQpa.so.6; do
+    ldd "$f" | grep 'not found'
+done
+echo '--- offscreen ---'
+QT_QPA_PLATFORM=offscreen ./squashfs-root/AppRun --selftest; echo "rc=$?"
+echo '--- xcb on Xvfb ---'
+command -v Xvfb || exit 1
+Xvfb :99 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+for i in $(seq 1 50); do [ -e /tmp/.X11-unix/X99 ] && break; sleep 0.2; done
+ls -la /tmp/.X11-unix/ || cat /tmp/xvfb.log
+DISPLAY=:99 QT_QPA_PLATFORM=xcb ./squashfs-root/AppRun --selftest > /tmp/gui.log 2>&1
+echo "rc=$?"
+cat /tmp/gui.log
+grep -q 'GUI_SELFTEST_OK.*platform=xcb' /tmp/gui.log || exit 1
+echo '--- same through the AppImage runtime (extract-and-run) ---'
+DISPLAY=:99 QT_QPA_PLATFORM=xcb APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --selftest 2>&1 | tee /tmp/gui2.log
+grep -q 'GUI_SELFTEST_OK.*platform=xcb' /tmp/gui2.log
+EOS
+docker run --rm -v "$APPIMAGE:/app/WinUSB.AppImage:ro" -v "$WORK/gui_test.sh:/gui_test.sh:ro" \
+    archlinux:latest bash /gui_test.sh || fail "GUI did not start"
 
 step "AppImage via FUSE on the host (normal double-click start)"
 "$APPIMAGE" --version || echo "(FUSE not available on this runner – not an error)"
