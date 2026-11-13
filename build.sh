@@ -69,6 +69,9 @@ for lib in libxcb-cursor.so.0 libxcb-icccm.so.4 libxcb-keysyms.so.1 libxcb-image
     src="$(ldconfig -p | awk -v l="$lib" '$1==l && /x86-64/ {print $NF; exit}')"
     if [ -n "$src" ]; then
         cp -L "$src" "$PS/Qt/lib/$lib"
+        chmod u+w "$PS/Qt/lib/$lib"
+        # bundled libs must find each other (e.g. libxcb-image -> libxcb-util)
+        patchelf --set-rpath '$ORIGIN' "$PS/Qt/lib/$lib"
         echo "  + $lib"
     else
         echo "  ! $lib not found on build host (skipped)"
