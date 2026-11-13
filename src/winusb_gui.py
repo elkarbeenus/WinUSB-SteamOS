@@ -603,16 +603,16 @@ class MainWindow(QMainWindow):
             except ValueError:
                 self.append_log(text)
                 continue
-            t = msg.get("t")
-            if t == "progress":
+            kind = msg.get("t")
+            if kind == "progress":
                 self.bar.setValue(int(msg.get("pct", 0) * 10))
                 self.status.setText(msg.get("stage", ""))
-            elif t == "log":
+            elif kind == "log":
                 self.append_log(msg.get("msg", ""))
-            elif t == "done":
+            elif kind == "done":
                 self.finished_ok = True
                 self.append_log(msg.get("msg", ""))
-            elif t == "error":
+            elif kind == "error":
                 self.last_error = msg.get("msg", "")
                 self.append_log(t("FEHLER: ", "ERROR: ") + self.last_error)
 

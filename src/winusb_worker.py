@@ -293,7 +293,7 @@ def read_mounts():
 def mounts_of_disk(disk_sys):
     names = {disk_sys.name} | set(partition_names(disk_sys))
     found = []
-    for src, mnt, _ in read_mounts():
+    for src, mnt, _fs in read_mounts():
         if not src.startswith("/dev/"):
             continue
         try:
@@ -378,7 +378,7 @@ def validate_target(dev, force_any):
 
 def umount(path, lazy_ok=True):
     tool = find_tool("umount") or "umount"
-    for _ in range(5):
+    for _i in range(5):
         p = subprocess.run([tool, path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if p.returncode == 0:
             return True
@@ -390,7 +390,7 @@ def umount(path, lazy_ok=True):
 
 def is_mounted(path):
     path = os.path.realpath(path)
-    return any(os.path.realpath(m) == path for _, m, _ in read_mounts())
+    return any(os.path.realpath(m) == path for _src, m, _fs in read_mounts())
 
 
 def mount_iso(iso, target):
@@ -488,7 +488,7 @@ def write_mbr(dev):
 
 def reread_partitions(dev, dsys):
     ok = False
-    for _ in range(10):
+    for _i in range(10):
         try:
             fd = os.open(dev, os.O_RDONLY)
             try:
@@ -513,7 +513,7 @@ def reread_partitions(dev, dsys):
 
     part = partition_dev(dev, 1)
     pname = os.path.basename(part)
-    for _ in range(40):
+    for _i in range(40):
         if os.path.exists(part) and stat.S_ISBLK(os.stat(part).st_mode):
             return part
         sysdev = dsys / pname / "dev"
@@ -976,7 +976,7 @@ def make_stick(iso, dev, bypass_hw=False, local_account=False, force_any=False):
                 continue
             copy_file(src, dst, prog, _("Kopiere ") + os.path.basename(rel))
         # empty directories
-        for dirpath, dirnames, _ in os.walk(iso_mnt):
+        for dirpath, dirnames, _files in os.walk(iso_mnt):
             for d in dirnames:
                 os.makedirs(os.path.join(usb_mnt, os.path.relpath(os.path.join(dirpath, d), iso_mnt)),
                             exist_ok=True)
