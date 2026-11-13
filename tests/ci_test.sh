@@ -159,7 +159,7 @@ docker run --rm -v "$WORK:$WORK" -v "$APPIMAGE:/app/WinUSB.AppImage:ro" archlinu
 step "GUI on a virtual X server inside Arch Linux"
 docker run --rm -v "$APPIMAGE:/app/WinUSB.AppImage:ro" archlinux:latest bash -euc "
     pacman -Sy --noconfirm --needed xorg-server-xvfb xorg-xauth fontconfig ttf-dejavu mesa libglvnd \
-        libxkbcommon libx11 libxcb dbus glib2 >/dev/null 2>&1
+        libxkbcommon libx11 libxcb dbus glib2 xorg-xkbcomp xkeyboard-config >/dev/null
     cd /tmp
     /app/WinUSB.AppImage --appimage-extract >/dev/null
     echo 'missing libraries of the Qt xcb plugin (should be none):'
@@ -170,7 +170,11 @@ docker run --rm -v "$APPIMAGE:/app/WinUSB.AppImage:ro" archlinux:latest bash -eu
     rm -rf squashfs-root
     export APPIMAGE_EXTRACT_AND_RUN=1
     QT_QPA_PLATFORM=offscreen /app/WinUSB.AppImage --selftest
-    QT_QPA_PLATFORM=xcb xvfb-run -a /app/WinUSB.AppImage --selftest 2>&1 | tee /tmp/gui.log
+    Xvfb :99 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+    for i in \$(seq 1 50); do [ -e /tmp/.X11-unix/X99 ] && break; sleep 0.2; done
+    cat /tmp/xvfb.log
+    DISPLAY=:99 QT_QPA_PLATFORM=xcb timeout 60 /app/WinUSB.AppImage --selftest > /tmp/gui.log 2>&1 || true
+    cat /tmp/gui.log
     grep -q 'GUI_SELFTEST_OK.*platform=xcb' /tmp/gui.log
 " || fail "GUI did not start"
 
