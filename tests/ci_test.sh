@@ -165,10 +165,12 @@ pacman -Sy --noconfirm --needed xorg-server-xvfb xorg-xauth fontconfig ttf-dejav
 cd /tmp
 /app/WinUSB.AppImage --appimage-extract >/dev/null || exit 1
 echo 'missing libraries of the Qt xcb plugin (should be none):'
+export LD_LIBRARY_PATH=/tmp/squashfs-root/usr/lib/gui
 for f in squashfs-root/opt/python/lib/python3*/site-packages/PySide6/Qt/plugins/platforms/libqxcb.so \
          squashfs-root/opt/python/lib/python3*/site-packages/PySide6/Qt/lib/libQt6XcbQpa.so.6; do
     ldd "$f" | grep 'not found'
 done
+unset LD_LIBRARY_PATH
 echo '--- offscreen ---'
 QT_QPA_PLATFORM=offscreen ./squashfs-root/AppRun --selftest; echo "rc=$?"
 echo '--- xcb on Xvfb ---'
@@ -177,8 +179,17 @@ Xvfb :99 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
 for i in $(seq 1 50); do [ -e /tmp/.X11-unix/X99 ] && break; sleep 0.2; done
 ls -la /tmp/.X11-unix/ || cat /tmp/xvfb.log
 DISPLAY=:99 QT_QPA_PLATFORM=xcb ./squashfs-root/AppRun --selftest > /tmp/gui.log 2>&1
-echo "rc=$?"
+rc=$?
+echo "rc=$rc"
 cat /tmp/gui.log
+if [ "$rc" -ge 128 ]; then
+    echo '--- crash diagnostics ---'
+    pacman -S --noconfirm --needed gdb >/dev/null 2>&1
+    DISPLAY=:99 QT_QPA_PLATFORM=xcb QT_XCB_GL_INTEGRATION=none ./squashfs-root/AppRun --selftest; echo "without GL integration rc=$?"
+    PY=$(ls -d squashfs-root/opt/python/bin/python3)
+    DISPLAY=:99 QT_QPA_PLATFORM=xcb QT_DEBUG_PLUGINS=0 LD_LIBRARY_PATH=/tmp/squashfs-root/usr/lib/gui \
+        gdb -batch -ex run -ex bt --args "$PY" -s -E squashfs-root/usr/share/winusb/winusb_gui.py --selftest 2>&1 | tail -40
+fi
 grep -q 'GUI_SELFTEST_OK.*platform=xcb' /tmp/gui.log || exit 1
 echo '--- same through the AppImage runtime (extract-and-run) ---'
 DISPLAY=:99 QT_QPA_PLATFORM=xcb APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --selftest 2>&1 | tee /tmp/gui2.log

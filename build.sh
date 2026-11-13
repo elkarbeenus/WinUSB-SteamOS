@@ -63,15 +63,15 @@ fi
 
 # xcb helper libs the Qt xcb plugin needs but the wheel does not ship
 log "Bundling xcb-util libraries for the Qt xcb plugin"
+mkdir -p "$APPDIR/usr/lib/gui"
 for lib in libxcb-cursor.so.0 libxcb-icccm.so.4 libxcb-keysyms.so.1 libxcb-image.so.0 \
            libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0 \
            libSM.so.6 libICE.so.6 libxcb-xinerama.so.0 libxcb-xinput.so.0; do
     src="$(ldconfig -p | awk -v l="$lib" '$1==l && /x86-64/ {print $NF; exit}')"
     if [ -n "$src" ]; then
-        cp -L "$src" "$PS/Qt/lib/$lib"
-        chmod u+w "$PS/Qt/lib/$lib"
-        # bundled libs must find each other (e.g. libxcb-image -> libxcb-util)
-        patchelf --set-rpath '$ORIGIN' "$PS/Qt/lib/$lib"
+        # separate dir, added to LD_LIBRARY_PATH by AppRun for the GUI only
+        # (no patchelf: old patchelf versions are known to corrupt libraries)
+        cp -L "$src" "$APPDIR/usr/lib/gui/$lib"
         echo "  + $lib"
     else
         echo "  ! $lib not found on build host (skipped)"
