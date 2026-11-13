@@ -1,0 +1,46 @@
+#!/bin/bash
+# WinUSB-SteamOS AppRun
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+export WINUSB_APPDIR="$HERE"
+export WINUSB_ICON="$HERE/winusb-steamos.png"
+PY="$HERE/opt/python/bin/python3"
+APP="$HERE/usr/share/winusb"
+
+# keep the host's Python environment out of our bundled interpreter
+unset PYTHONHOME PYTHONPATH PYTHONSTARTUP
+export PYTHONNOUSERSITE=1
+export PYTHONDONTWRITEBYTECODE=1
+
+case "$1" in
+    --worker|--cli)
+        exec "$PY" -s -E "$APP/winusb_worker.py" "$@"
+        ;;
+    --version)
+        echo "WinUSB-SteamOS 1.0.0"
+        exit 0
+        ;;
+    -h|--help)
+        cat <<EOF
+WinUSB-SteamOS – bootfähigen Windows-USB-Stick aus einer ISO erstellen
+
+  $(basename "${APPIMAGE:-WinUSB-SteamOS.AppImage}")                 grafische Oberfläche
+  $(basename "${APPIMAGE:-WinUSB-SteamOS.AppImage}") <datei.iso>     GUI mit vorausgewählter ISO
+
+Text-Modus (als root):
+  sudo ./WinUSB-SteamOS-x86_64.AppImage --cli --iso Win11.iso --device /dev/sdX \\
+       [--win11-bypass] [--local-account] [--yes]
+EOF
+        exit 0
+        ;;
+esac
+
+# Qt: no host plugins/themes leaking in, works on X11 and Wayland
+unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH
+if [ -z "$QT_QPA_PLATFORM" ]; then
+    if [ -n "$DISPLAY" ]; then
+        export QT_QPA_PLATFORM="xcb;wayland"
+    elif [ -n "$WAYLAND_DISPLAY" ]; then
+        export QT_QPA_PLATFORM="wayland;xcb"
+    fi
+fi
+exec "$PY" -s -E "$APP/winusb_gui.py" "$@"

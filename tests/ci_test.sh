@@ -1,0 +1,140 @@
+#!/bin/bash
+# End-to-end test of the built AppImage (runs in GitHub Actions, as root).
+#
+#  * builds a fake Windows ISO (UDF, like the real ones) with an install.wim > 4 GiB
+#  * creates a fake 8 GB "USB stick" (loop device) with an old GPT/ext4 on it
+#  * runs the AppImage in an Arch Linux container (SteamOS is Arch based)
+#    WITHOUT FUSE, exactly like pkexec does it (APPIMAGE_EXTRACT_AND_RUN=1)
+#  * checks partition table, filesystem, files, split WIM integrity, autounattend.xml
+#  * starts the GUI on a virtual X server inside the Arch container
+set -euo pipefail
+
+APPIMAGE="$(readlink -f "${1:-dist/WinUSB-SteamOS-x86_64.AppImage}")"
+WORK="${WORK:-/mnt/winusb-test}"
+chmod +x "$APPIMAGE"
+
+step() { printf '\n\033[1;32m### %s\033[0m\n' "$*"; }
+fail() { printf '\n\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+
+step "Host tools"
+apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq udftools wimtools dosfstools fdisk >/dev/null
+modprobe loop || true
+modprobe udf || true
+modprobe vfat || true
+
+rm -rf "$WORK"; mkdir -p "$WORK"; cd "$WORK"
+
+step "Fake Windows ISO with install.wim > 4 GiB"
+mkdir -p tree/efi/boot tree/efi/microsoft/boot tree/boot tree/sources tree/support/logging big
+head -c 1500000 /dev/urandom > tree/efi/boot/bootx64.efi
+head -c 3000000 /dev/urandom > tree/efi/microsoft/boot/efisys.bin
+head -c 300000  /dev/urandom > tree/boot/bcd
+head -c 500000  /dev/urandom > tree/bootmgr.efi
+head -c 400000  /dev/urandom > tree/setup.exe
+echo "[AutoRun]" > tree/autorun.inf
+head -c 20000000 /dev/urandom > tree/sources/boot.wim
+# ~4.4 GB of incompressible data -> install.wim
+for i in 1 2 3 4 5; do head -c 900000000 /dev/urandom > "big/data$i.bin"; done
+wimlib-imagex capture big tree/sources/install.wim "Windows 11 Pro" --compress=none
+rm -rf big
+ls -l tree/sources/install.wim
+WIMSIZE=$(stat -c %s tree/sources/install.wim)
+[ "$WIMSIZE" -gt 4294967295 ] || fail "test wim not > 4 GiB"
+
+truncate -s 5200M test.iso
+mkudffs --utf8 --media-type=hd --blocksize=2048 --label=CCCOMA_X64FRE test.iso >/dev/null
+mkdir -p isomnt
+mount -o loop test.iso isomnt
+cp -r tree/. isomnt/
+umount isomnt
+sha256sum tree/efi/boot/bootx64.efi tree/sources/boot.wim > sums.txt
+rm -rf tree/sources/install.wim
+
+step "Fake 8 GB USB stick with old GPT + ext4 on it"
+truncate -s 8G usb.img
+LOOP=$(losetup -fP --show usb.img)
+echo "loop device: $LOOP"
+echo 'label: gpt
+,1G,L
+,,L' | sfdisk -q "$LOOP"
+partx -u "$LOOP" || true
+sleep 1
+mkfs.ext4 -q "${LOOP}p1" || true
+cleanup() { umount "$WORK/check" 2>/dev/null || true; losetup -d "$LOOP" 2>/dev/null || true; }
+trap cleanup EXIT
+
+step "Run AppImage worker inside Arch Linux (no FUSE, like pkexec)"
+docker run --rm --privileged -v /dev:/dev -v "$WORK:$WORK" -v "$APPIMAGE:/app/WinUSB.AppImage:ro" \
+    archlinux:latest bash -euc "
+        cat /etc/os-release | head -2
+        ldd --version | head -1
+        cd /tmp
+        APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --cli --iso '$WORK/test.iso' --device '$LOOP' \
+            --yes --force-any-device --win11-bypass --local-account
+        echo
+        echo '--- JSON worker mode (what the GUI sees) ---'
+    "
+
+step "Verify result"
+partx -u "$LOOP" 2>/dev/null || true
+blockdev --rereadpt "$LOOP" 2>/dev/null || true
+sleep 1
+sfdisk -d "$LOOP"
+sfdisk -d "$LOOP" | grep -q 'type=c, bootable' || fail "partition is not FAT32-LBA + bootable"
+sfdisk -d "$LOOP" | grep -c '^/dev' | grep -qx 1 || fail "expected exactly one partition"
+[ "$(blkid -o value -s TYPE "${LOOP}p1")" = vfat ] || fail "not vfat"
+blkid "${LOOP}p1"
+fsck.fat -n "${LOOP}p1" || fail "fsck.fat reported errors"
+
+mkdir -p check
+mount -o ro "${LOOP}p1" check
+ls -la check check/sources
+( cd check && sed 's#tree/##' "$WORK/sums.txt" | sha256sum -c ) || fail "checksum mismatch"
+[ -f check/setup.exe ] && [ -f check/efi/boot/bootx64.efi ] || fail "files missing"
+[ ! -e check/sources/install.wim ] || fail "install.wim should have been split"
+ls check/sources/install*.swm
+[ "$(ls check/sources/install*.swm | wc -l)" -ge 2 ] || fail "expected >= 2 swm parts"
+for f in check/sources/install*.swm; do
+    [ "$(stat -c %s "$f")" -lt 4294967295 ] || fail "$f too big for FAT32"
+done
+wimlib-imagex verify check/sources/install.swm --ref="check/sources/install*.swm" || fail "split WIM corrupt"
+wimlib-imagex info check/sources/install.swm --ref="check/sources/install*.swm" | grep -q "Windows 11 Pro" \
+    || fail "image name lost"
+grep -q BypassTPMCheck check/autounattend.xml || fail "autounattend bypass missing"
+grep -q BypassNRO check/autounattend.xml || fail "autounattend NRO missing"
+umount check
+
+step "Worker JSON mode + safety checks (Arch container)"
+docker run --rm --privileged -v /dev:/dev -v "$WORK:$WORK" -v "$APPIMAGE:/app/WinUSB.AppImage:ro" \
+    archlinux:latest bash -uc "
+        cd /tmp
+        echo '>> refusing a partition instead of a disk:'
+        out=\$(sleep 30 | APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --worker --iso '$WORK/test.iso' --device '${LOOP}p1' --force-any-device)
+        echo \"\$out\"
+        echo \"\$out\" | grep -q '\"t\": \"error\"' || exit 1
+        echo '>> refusing a non-removable disk without override:'
+        out=\$(sleep 30 | APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --worker --iso '$WORK/test.iso' --device '$LOOP')
+        echo \"\$out\"
+        echo \"\$out\" | grep -q 'USB' || exit 1
+        echo '>> cancel via closed stdin:'
+        out=\$(APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --worker --iso '$WORK/test.iso' --device '$LOOP' --force-any-device < /dev/null)
+        echo \"\$out\" | tail -2
+        echo \"\$out\" | grep -q 'Abgebrochen' || exit 1
+    " || fail "safety checks"
+
+step "GUI on a virtual X server inside Arch Linux"
+docker run --rm -v "$APPIMAGE:/app/WinUSB.AppImage:ro" archlinux:latest bash -euc "
+    pacman -Sy --noconfirm --needed xorg-server-xvfb xorg-xauth fontconfig ttf-dejavu mesa libglvnd \
+        libxkbcommon libx11 libxcb dbus glib2 >/dev/null 2>&1
+    cd /tmp
+    export APPIMAGE_EXTRACT_AND_RUN=1
+    QT_QPA_PLATFORM=offscreen /app/WinUSB.AppImage --selftest
+    QT_QPA_PLATFORM=xcb xvfb-run -a /app/WinUSB.AppImage --selftest 2>&1 | tee /tmp/gui.log
+    grep -q 'GUI_SELFTEST_OK.*platform=xcb' /tmp/gui.log
+" || fail "GUI did not start"
+
+step "AppImage via FUSE on the host (normal double-click start)"
+"$APPIMAGE" --version || echo "(FUSE not available on this runner – not an error)"
+
+step "ALL TESTS PASSED"

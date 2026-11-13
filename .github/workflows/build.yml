@@ -1,0 +1,87 @@
+name: Build AppImage
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    # old glibc (2.35) as baseline -> runs on every SteamOS version
+    container: ubuntu:22.04
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates curl git file build-essential pkg-config patchelf \
+            wimtools libegl1 libgl1 libopengl0 libglib2.0-0 libxkbcommon0 libfontconfig1 \
+            libfreetype6 libdbus-1-3 libx11-6 libx11-xcb1 libxcb1 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-image0 libxcb-render-util0 \
+            libxcb-util1 libxkbcommon-x11-0 desktop-file-utils zsync
+
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build AppImage
+        run: ./build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WinUSB-SteamOS-AppImage
+          path: dist/WinUSB-SteamOS-x86_64.AppImage
+          if-no-files-found: error
+
+  test:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: WinUSB-SteamOS-AppImage
+          path: dist
+
+      - name: End-to-end test (fake ISO -> fake USB stick, Arch Linux container)
+        run: sudo WORK=/mnt/winusb-test bash tests/ci_test.sh dist/WinUSB-SteamOS-x86_64.AppImage
+
+  release:
+    needs: [build, test]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: WinUSB-SteamOS-AppImage
+          path: dist
+
+      - name: Version
+        id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v1.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: WinUSB-SteamOS ${{ steps.v.outputs.tag }}
+          make_latest: true
+          files: dist/WinUSB-SteamOS-x86_64.AppImage
+          body: |
+            **Download:** `WinUSB-SteamOS-x86_64.AppImage` (unten bei *Assets*)
+
+            Rechtsklick → Eigenschaften → Berechtigungen → *Ausführbar* anhaken, dann doppelklicken.
+            Getestet in der CI: echte Windows-ähnliche UDF-ISO mit install.wim > 4 GB → Stick (Loop-Device),
+            ausgeführt unter Arch Linux (Basis von SteamOS) ohne FUSE, so wie es per pkexec läuft.

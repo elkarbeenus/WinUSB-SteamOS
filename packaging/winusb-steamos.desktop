@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=WinUSB SteamOS
+GenericName=Windows USB Creator
+Comment=Bootfähigen Windows-USB-Stick aus einer ISO erstellen
+Exec=winusb-steamos %f
+Icon=winusb-steamos
+Terminal=false
+Categories=Utility;
+MimeType=application/x-cd-image;application/x-iso9660-image;
+Keywords=windows;usb;iso;boot;installer;woeusb;rufus;
