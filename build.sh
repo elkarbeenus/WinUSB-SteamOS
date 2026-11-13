@@ -123,6 +123,12 @@ ldd "$APPDIR/usr/bin/wimlib-imagex" || true
 log "Application files"
 cd "$ROOT"
 install -m644 src/winusb_gui.py src/winusb_worker.py "$APPDIR/usr/share/winusb/"
+APP_VERSION="${APP_VERSION:-dev}"
+BUILD_DATE="$(date -u +%Y-%m-%d)"
+BUILD_COMMIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "")"
+printf '{"version": "%s", "date": "%s", "commit": "%s"}\n' "$APP_VERSION" "$BUILD_DATE" "$BUILD_COMMIT" \
+    > "$APPDIR/usr/share/winusb/build_info.json"
+cat "$APPDIR/usr/share/winusb/build_info.json"
 install -m755 packaging/AppRun "$APPDIR/AppRun"
 install -m644 packaging/winusb-steamos.desktop "$APPDIR/winusb-steamos.desktop"
 install -m644 packaging/winusb-steamos.desktop "$APPDIR/usr/share/applications/winusb-steamos.desktop"

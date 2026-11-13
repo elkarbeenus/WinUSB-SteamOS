@@ -118,7 +118,7 @@ docker run --rm --privileged -v /dev:/dev -v "$WORK:$WORK" -v "$APPIMAGE:/app/Wi
         echo '>> cancel via closed stdin:'
         out=\$(APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --worker --iso '$WORK/test.iso' --device '$LOOP' --force-any-device < /dev/null)
         echo \"\$out\" | tail -2
-        echo \"\$out\" | grep -q 'Abgebrochen' || exit 1
+        echo \"\$out\" | grep -q -E 'Abgebrochen|Cancelled' || exit 1
     " || fail "safety checks"
 
 step "Image mode (SteamOS recovery style .img.bz2 / .zip, Linux hybrid ISO detection)"
@@ -202,6 +202,7 @@ a=QApplication([]); l=QLabel('hi'); l.show(); QTimer.singleShot(500,a.quit); a.e
         --args "$PY" -s -E squashfs-root/usr/share/winusb/winusb_gui.py --selftest 2>&1 | grep -E '^#|signal' | head -25
 fi
 grep -q 'GUI_SELFTEST_OK.*platform=xcb' /tmp/gui.log || exit 1
+grep -q 'version=1\.' /tmp/gui.log || grep -q 'version=[0-9]' /tmp/gui.log || exit 1
 echo '--- same through the AppImage runtime (extract-and-run) ---'
 DISPLAY=:99 QT_QPA_PLATFORM=xcb APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --selftest 2>&1 | tee /tmp/gui2.log
 grep -q 'GUI_SELFTEST_OK.*platform=xcb' /tmp/gui2.log

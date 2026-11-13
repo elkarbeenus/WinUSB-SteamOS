@@ -1,8 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=WinUSB SteamOS
-GenericName=Windows USB Creator
-Comment=Bootfähigen Windows-USB-Stick aus einer ISO erstellen
+GenericName=Bootable USB Creator
+GenericName[de]=Bootfähige USB-Sticks erstellen
+Comment=Create bootable USB sticks from Windows ISOs, SteamOS recovery images and Linux ISOs
+Comment[de]=Bootfähige USB-Sticks aus Windows-ISOs, SteamOS-Recovery-Images und Linux-ISOs erstellen
 Exec=winusb-steamos %f
 Icon=winusb-steamos
 Terminal=false

@@ -15,7 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, Qt, QTimer
+from PySide6.QtCore import QProcess, QSettings, Qt, QTimer
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout,
@@ -24,11 +24,55 @@ from PySide6.QtWidgets import (
 )
 
 APP_NAME = "WinUSB-SteamOS"
-VERSION = "1.0.0"
 HERE = Path(__file__).resolve().parent
 WORKER = HERE / "winusb_worker.py"
+REPO_URL = "https://github.com/elkarbeenus/WinUSB-SteamOS"
 sys.path.insert(0, str(HERE))
 from winusb_worker import detect_mode  # noqa: E402
+
+
+def load_build_info():
+    info = {"version": "dev", "date": "", "commit": ""}
+    try:
+        with open(HERE / "build_info.json", encoding="utf-8") as f:
+            info.update(json.load(f))
+    except (OSError, ValueError):
+        pass
+    return info
+
+
+BUILD = load_build_info()
+SETTINGS = QSettings("WinUSB-SteamOS", "WinUSB-SteamOS")
+
+
+def system_lang():
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
+        v = os.environ.get(var, "")
+        if v:
+            return "de" if v.lower().startswith("de") else "en"
+    return "en"
+
+
+def configured_lang():
+    v = str(SETTINGS.value("lang", "auto") or "auto")
+    return v if v in ("de", "en") else system_lang()
+
+
+LANG = configured_lang()
+
+
+def t(de, en):
+    """inline translation: German / English"""
+    return de if LANG == "de" else en
+
+
+def build_date_text():
+    d = BUILD.get("date") or ""
+    try:
+        y, m, dd = d.split("-")
+        return "%s.%s.%s" % (dd, m, y) if LANG == "de" else "%s/%s/%s" % (dd, m, y)
+    except ValueError:
+        return t("unbekannt", "unknown")
 
 
 def human(n):
@@ -93,7 +137,7 @@ def list_usb_devices():
         model = " ".join(x for x in ((d.get("vendor") or "").strip(), (d.get("model") or "").strip()) if x)
         labels = [c.get("label") for c in (d.get("children") or []) if c.get("label")]
         path = d.get("path") or ("/dev/" + name)
-        kind = "SD-Karte" if name.startswith("mmcblk") else "USB"
+        kind = t("SD-Karte", "SD card") if name.startswith("mmcblk") else "USB"
         text = "%s  –  %s  (%s)" % (model or kind, human(size), path)
         if labels:
             text += "  [%s]" % ", ".join(labels)
@@ -104,7 +148,7 @@ def list_usb_devices():
 class MainWindow(QMainWindow):
     def __init__(self, iso=None):
         super().__init__()
-        self.setWindowTitle("%s – bootfähigen USB-Stick erstellen" % APP_NAME)
+        self.setWindowTitle(t("%s – bootfähigen USB-Stick erstellen", "%s – create a bootable USB stick") % APP_NAME)
         self.proc = None
         self.devices = []
         self.finished_ok = False
@@ -117,9 +161,12 @@ class MainWindow(QMainWindow):
         lay.setSpacing(12)
         lay.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("<b style='font-size:15pt'>Bootfähigen USB-Stick erstellen</b><br>"
-                       "<span style='color:gray'>Windows 10/11-ISO, SteamOS-Recovery-Image oder "
-                       "Linux-ISO – direkt unter SteamOS.</span>")
+        title = QLabel(t("<b style='font-size:15pt'>Bootfähigen USB-Stick erstellen</b><br>"
+                         "<span style='color:gray'>Windows 10/11-ISO, SteamOS-Recovery-Image oder "
+                         "Linux-ISO – direkt unter SteamOS.</span>",
+                         "<b style='font-size:15pt'>Create a bootable USB stick</b><br>"
+                         "<span style='color:gray'>Windows 10/11 ISO, SteamOS recovery image or "
+                         "Linux ISO – right on SteamOS.</span>"))
         title.setTextFormat(Qt.RichText)
         lay.addWidget(title)
 
@@ -129,18 +176,19 @@ class MainWindow(QMainWindow):
         h1 = QHBoxLayout()
         v1.addLayout(h1)
         self.iso_edit = QLineEdit()
-        self.iso_edit.setPlaceholderText("Datei auswählen oder hierher ziehen (.iso, .img, .img.bz2, .zip …)")
+        self.iso_edit.setPlaceholderText(t("Datei auswählen oder hierher ziehen (.iso, .img, .img.bz2, .zip …)",
+                                          "Choose a file or drop it here (.iso, .img, .img.bz2, .zip …)"))
         self.iso_edit.setReadOnly(True)
-        self.iso_btn = QPushButton("Auswählen …")
+        self.iso_btn = QPushButton(t("Auswählen …", "Browse …"))
         self.iso_btn.clicked.connect(self.choose_iso)
         h1.addWidget(self.iso_edit, 1)
         h1.addWidget(self.iso_btn)
         hm = QHBoxLayout()
-        hm.addWidget(QLabel("Modus:"))
+        hm.addWidget(QLabel(t("Modus:", "Mode:")))
         self.mode_combo = QComboBox()
-        self.mode_combo.addItem("Automatisch erkennen", "auto")
-        self.mode_combo.addItem("Windows-Installer (ISO → FAT32, wie Rufus)", "windows")
-        self.mode_combo.addItem("Image 1:1 schreiben (SteamOS, Linux – wie Etcher/dd)", "raw")
+        self.mode_combo.addItem(t("Automatisch erkennen", "Detect automatically"), "auto")
+        self.mode_combo.addItem(t("Windows-Installer (ISO → FAT32, wie Rufus)", "Windows installer (ISO → FAT32, like Rufus)"), "windows")
+        self.mode_combo.addItem(t("Image 1:1 schreiben (SteamOS, Linux – wie Etcher/dd)", "Write image 1:1 (SteamOS, Linux – like Etcher/dd)"), "raw")
         self.mode_combo.currentIndexChanged.connect(self.update_mode)
         hm.addWidget(self.mode_combo, 1)
         v1.addLayout(hm)
@@ -151,12 +199,12 @@ class MainWindow(QMainWindow):
         lay.addWidget(g1)
 
         # --- device ---
-        g2 = QGroupBox("2. USB-Stick")
+        g2 = QGroupBox(t("2. USB-Stick", "2. USB stick"))
         v2 = QVBoxLayout(g2)
         h2 = QHBoxLayout()
         self.dev_combo = QComboBox()
         self.dev_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.refresh_btn = QPushButton("Aktualisieren")
+        self.refresh_btn = QPushButton(t("Aktualisieren", "Refresh"))
         self.refresh_btn.clicked.connect(lambda: self.refresh_devices(force=True))
         h2.addWidget(self.dev_combo, 1)
         h2.addWidget(self.refresh_btn)
@@ -167,25 +215,37 @@ class MainWindow(QMainWindow):
         lay.addWidget(g2)
 
         # --- options ---
-        g3 = QGroupBox("3. Optionen")
+        g3 = QGroupBox(t("3. Optionen", "3. Options"))
         v3 = QVBoxLayout(g3)
         self.g3 = g3
-        self.opt_bypass = QCheckBox("TPM-, Secure-Boot-, RAM- und CPU-Prüfung umgehen "
-                                    "(für ältere PCs)")
-        self.opt_local = QCheckBox("Einrichtung ohne Microsoft-Konto erlauben (lokales Konto)")
+        self.opt_bypass = QCheckBox(t("Windows 11: TPM-, Secure-Boot-, RAM- und CPU-Prüfung umgehen "
+                                      "(für ältere PCs)",
+                                      "Windows 11: bypass TPM, Secure Boot, RAM and CPU checks "
+                                      "(for older PCs)"))
+        self.opt_local = QCheckBox(t("Windows 11: Einrichtung ohne Microsoft-Konto erlauben (lokales Konto)",
+                                     "Windows 11: allow setup without a Microsoft account (local account)"))
         v3.addWidget(self.opt_bypass)
         v3.addWidget(self.opt_local)
-        self.opt_verify = QCheckBox("Nach dem Schreiben überprüfen (empfohlen)")
+        self.opt_verify = QCheckBox(t("Nach dem Schreiben überprüfen (empfohlen)", "Verify after writing (recommended)"))
         self.opt_verify.setChecked(True)
         v3.addWidget(self.opt_verify)
-        note = QLabel("Windows-Sticks booten im UEFI-Modus (alle PCs ab ca. 2012 und das Steam Deck).")
+        ha = QHBoxLayout()
+        ha.addWidget(QLabel(t("Nach Abschluss:", "When finished:")))
+        self.after_combo = QComboBox()
+        self.after_combo.addItem(t("Nichts tun", "Do nothing"), "none")
+        self.after_combo.addItem(t("Standby (Energie sparen)", "Sleep (suspend)"), "suspend")
+        self.after_combo.addItem(t("Gerät herunterfahren", "Shut down this device"), "poweroff")
+        ha.addWidget(self.after_combo, 1)
+        v3.addLayout(ha)
+        note = QLabel(t("Windows-Sticks booten im UEFI-Modus (alle PCs ab ca. 2012 und das Steam Deck).",
+                        "Windows sticks boot in UEFI mode (all PCs since about 2012 and the Steam Deck)."))
         note.setStyleSheet("color: gray")
         note.setWordWrap(True)
         v3.addWidget(note)
         lay.addWidget(g3)
 
         # --- progress ---
-        self.status = QLabel("Bereit.")
+        self.status = QLabel(t("Bereit.", "Ready."))
         self.bar = QProgressBar()
         self.bar.setRange(0, 1000)
         self.bar.setValue(0)
@@ -194,7 +254,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.bar)
 
         self.log_toggle = QToolButton()
-        self.log_toggle.setText("Details anzeigen")
+        self.log_toggle.setText(t("Details anzeigen", "Show details"))
         self.log_toggle.setCheckable(True)
         self.log_toggle.toggled.connect(self.toggle_log)
         lay.addWidget(self.log_toggle, 0, Qt.AlignLeft)
@@ -211,15 +271,22 @@ class MainWindow(QMainWindow):
         hb = QHBoxLayout()
         self.about_btn = QPushButton("Info")
         self.about_btn.clicked.connect(self.about)
-        self.cancel_btn = QPushButton("Abbrechen")
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItem("Deutsch", "de")
+        self.lang_combo.addItem("English", "en")
+        self.lang_combo.setCurrentIndex(0 if LANG == "de" else 1)
+        self.lang_combo.setToolTip("Sprache / Language")
+        self.lang_combo.currentIndexChanged.connect(self.change_language)
+        self.cancel_btn = QPushButton(t("Abbrechen", "Cancel"))
         self.cancel_btn.clicked.connect(self.cancel)
         self.cancel_btn.setEnabled(False)
-        self.start_btn = QPushButton("Stick erstellen")
+        self.start_btn = QPushButton(t("Stick erstellen", "Create stick"))
         self.start_btn.setDefault(True)
         self.start_btn.setMinimumHeight(40)
         self.start_btn.setStyleSheet("font-weight: bold; padding: 6px 22px;")
         self.start_btn.clicked.connect(self.start)
         hb.addWidget(self.about_btn)
+        hb.addWidget(self.lang_combo)
         hb.addStretch(1)
         hb.addWidget(self.cancel_btn)
         hb.addWidget(self.start_btn)
@@ -241,7 +308,7 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------------- ui
     def toggle_log(self, on):
         self.log.setVisible(on)
-        self.log_toggle.setText("Details ausblenden" if on else "Details anzeigen")
+        self.log_toggle.setText(t("Details ausblenden", "Hide details") if on else t("Details anzeigen", "Show details"))
 
     def append_log(self, text):
         self.log.appendPlainText(text)
@@ -261,9 +328,10 @@ class MainWindow(QMainWindow):
         start = os.path.dirname(self.iso_edit.text()) if self.iso_edit.text() else \
             str(Path.home() / "Downloads") if (Path.home() / "Downloads").is_dir() else str(Path.home())
         path, _ = QFileDialog.getOpenFileName(
-            self, "ISO oder Image auswählen", start,
-            "ISO und Images (*.iso *.ISO *.img *.IMG *.raw *.bz2 *.xz *.gz *.zip);;"
-            "Windows-ISO (*.iso *.ISO);;Alle Dateien (*)")
+            self, t("ISO oder Image auswählen", "Choose ISO or image"), start,
+            t("ISO und Images", "ISOs and images") +
+            " (*.iso *.ISO *.img *.IMG *.raw *.bz2 *.xz *.gz *.zip);;Windows ISO (*.iso *.ISO);;" +
+            t("Alle Dateien", "All files") + " (*)")
         if path:
             self.set_iso(path)
 
@@ -293,11 +361,15 @@ class MainWindow(QMainWindow):
         if not p:
             self.mode_hint.setText("")
         elif win:
-            self.mode_hint.setText("→ Windows-Installations-Stick: FAT32, große install.wim wird "
-                                   "automatisch aufgeteilt.")
+            self.mode_hint.setText(t("→ Windows-Installations-Stick: FAT32, große install.wim wird "
+                                     "automatisch aufgeteilt.",
+                                     "→ Windows installation stick: FAT32, a large install.wim is "
+                                     "split automatically."))
         else:
-            self.mode_hint.setText("→ Wird 1:1 auf den Stick geschrieben (z.B. SteamOS-Recovery-Image, "
-                                   "Ubuntu, Bazzite). Komprimierte Dateien werden direkt entpackt.")
+            self.mode_hint.setText(t("→ Wird 1:1 auf den Stick geschrieben (z.B. SteamOS-Recovery-Image, "
+                                     "Ubuntu, Bazzite). Komprimierte Dateien werden direkt entpackt.",
+                                     "→ Written 1:1 to the stick (e.g. SteamOS recovery image, Ubuntu, "
+                                     "Bazzite). Compressed files are decompressed on the fly."))
 
     def refresh_devices(self, force=False):
         if self.proc is not None:
@@ -316,10 +388,13 @@ class MainWindow(QMainWindow):
             if idx >= 0:
                 self.dev_combo.setCurrentIndex(idx)
         if devs:
-            self.dev_hint.setText("Achtung: Alle Daten auf dem gewählten Stick werden gelöscht.")
+            self.dev_hint.setText(t("Achtung: Alle Daten auf dem gewählten Stick werden gelöscht.",
+                                     "Warning: all data on the selected stick will be erased."))
         else:
-            self.dev_hint.setText("Kein USB-Stick gefunden – einfach einstecken, er erscheint "
-                                  "automatisch (mind. 8 GB).")
+            self.dev_hint.setText(t("Kein USB-Stick gefunden – einfach einstecken, er erscheint "
+                                    "automatisch (mind. 8 GB).",
+                                    "No USB stick found – just plug one in, it shows up "
+                                    "automatically (at least 8 GB)."))
         self.update_buttons()
 
     def update_buttons(self):
@@ -327,23 +402,111 @@ class MainWindow(QMainWindow):
         self.start_btn.setEnabled(not busy and bool(self.iso_edit.text()) and
                                   self.dev_combo.count() > 0)
         for w in (self.iso_btn, self.dev_combo, self.refresh_btn, self.opt_bypass, self.opt_local,
-                  self.opt_verify, self.mode_combo):
+                  self.opt_verify, self.mode_combo, self.lang_combo):
             w.setEnabled(not busy)
         self.cancel_btn.setEnabled(busy)
 
     def about(self):
+        commit = (" (%s)" % BUILD["commit"]) if BUILD.get("commit") else ""
         QMessageBox.about(
             self, "Info",
-            "<b>%s %s</b><br><br>Erstellt bootfähige Windows-Installations-Sticks unter "
-            "SteamOS und anderen Linux-Systemen – ohne etwas zu installieren und ohne "
-            "Schreibzugriff auf das System.<br><br>"
-            "Methode: MBR + FAT32, große install.wim wird mit wimlib in install.swm-Teile "
-            "aufgeteilt (wie Rufus/WoeUSB).<br><br>Lizenz: MIT" % (APP_NAME, VERSION))
+            "<h3>%s %s</h3>" % (APP_NAME, BUILD.get("version", "dev")) +
+            "<p><b>%s</b> %s%s</p>" % (t("Build vom", "Build date"), build_date_text(), commit) +
+            "<p><b>%s</b> Dominic Lesina &times; Claude</p>" % t("Erstellt von", "Created by") +
+            "<p>" + t("Bootfähige USB-Sticks unter SteamOS und anderen Linux-Systemen – ohne "
+                      "etwas zu installieren und ohne Schreibzugriff auf das System.",
+                      "Bootable USB sticks on SteamOS and other Linux systems – nothing to "
+                      "install, no write access to the system needed.") + "</p>"
+            "<p>" + t("Windows: MBR + FAT32, große install.wim wird mit wimlib aufgeteilt (wie Rufus/WoeUSB).<br>"
+                      "Images: 1:1 mit Überprüfung (wie Etcher).",
+                      "Windows: MBR + FAT32, large install.wim split with wimlib (like Rufus/WoeUSB).<br>"
+                      "Images: written 1:1 with verification (like Etcher).") + "</p>"
+            "<p><a href='%s'>%s</a><br>%s: MIT</p>" % (REPO_URL, REPO_URL, t("Lizenz", "License")))
+
+    def change_language(self, *_):
+        global LANG
+        new = self.lang_combo.currentData()
+        if new == LANG or self.proc is not None:
+            return
+        SETTINGS.setValue("lang", new)
+        SETTINGS.sync()
+        LANG = new
+        install_qt_translator(QApplication.instance())
+        geo = self.geometry()
+        w = MainWindow(self.iso_edit.text() or None)
+        w.setGeometry(geo)
+        w.mode_combo.setCurrentIndex(self.mode_combo.currentIndex())
+        w.opt_bypass.setChecked(self.opt_bypass.isChecked())
+        w.opt_local.setChecked(self.opt_local.isChecked())
+        w.opt_verify.setChecked(self.opt_verify.isChecked())
+        w.after_combo.setCurrentIndex(self.after_combo.currentIndex())
+        idx = w.dev_combo.findData(self.dev_combo.currentData())
+        if idx >= 0:
+            w.dev_combo.setCurrentIndex(idx)
+        set_main(w)
+        w.show()
+        self.timer.stop()
+        self.close()
+        self.deleteLater()
+
+    def show_done(self):
+        QMessageBox.information(
+            self, t("Fertig", "Done"),
+            t("<b>Der Stick ist fertig!</b><br><br>Du kannst ihn jetzt abziehen.<br><br>"
+              "Booten: Beim Start des Ziel-PCs das Boot-Menü öffnen (meist F12, F11, F8 oder "
+              "Esc).<br>Steam Deck: <i>Lautstärke runter</i> gedrückt halten und "
+              "<i>Power</i> drücken.",
+              "<b>The stick is ready!</b><br><br>You can remove it now.<br><br>"
+              "To boot: open the boot menu when the target PC starts (usually F12, F11, F8 or "
+              "Esc).<br>Steam Deck: hold <i>Volume down</i> and press <i>Power</i>."))
+
+    def countdown_after(self, action):
+        """Ask with a 30 s countdown, then suspend / power off. Returns True if handled."""
+        secs = [30]
+        what = t("Standby", "Sleep") if action == "suspend" else t("Herunterfahren", "Shut down")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle(t("Fertig", "Done"))
+        go = box.addButton(t("Jetzt", "Now"), QMessageBox.AcceptRole)
+        stop = box.addButton(t("Abbrechen", "Cancel"), QMessageBox.RejectRole)
+        box.setDefaultButton(go)
+
+        def text():
+            box.setText(t("<b>Der Stick ist fertig!</b><br><br>%s in %d Sekunden …",
+                          "<b>The stick is ready!</b><br><br>%s in %d seconds …") % (what, secs[0]))
+        text()
+        timer = QTimer(box)
+
+        def tick():
+            secs[0] -= 1
+            if secs[0] <= 0:
+                timer.stop()
+                box.done(0)
+            else:
+                text()
+        timer.timeout.connect(tick)
+        timer.start(1000)
+        box.exec()
+        timer.stop()
+        if box.clickedButton() == stop:
+            self.show_done()
+            return True
+        cmd = ["systemctl", "suspend"] if action == "suspend" else ["systemctl", "poweroff"]
+        exe = find_exe("systemctl") or "systemctl"
+        ok = QProcess.startDetached(exe, cmd[1:])
+        if isinstance(ok, tuple):
+            ok = ok[0]
+        if not ok:
+            QMessageBox.warning(self, APP_NAME, t("%s konnte nicht ausgelöst werden.",
+                                                  "Could not trigger %s.") % what)
+        if action == "suspend":
+            self.show_done()
+        return True
 
     # ------------------------------------------------------------ run
     def build_command(self, iso, dev):
         mode = self.effective_mode()
-        args = ["--worker", "--iso", iso, "--device", dev, "--mode", mode]
+        args = ["--worker", "--iso", iso, "--device", dev, "--mode", mode, "--lang", LANG]
         if mode == "windows":
             if self.opt_bypass.isChecked():
                 args.append("--win11-bypass")
@@ -377,18 +540,20 @@ class MainWindow(QMainWindow):
         if dinfo and not compressed and dinfo["size"] < iso_size + (100 * 1000 ** 2 if
                                                                   self.effective_mode() == "windows" else 0):
             QMessageBox.warning(self, APP_NAME,
-                                "Der Stick ist zu klein.\nISO: %s\nStick: %s" %
+                                t("Der Stick ist zu klein.\nISO: %s\nStick: %s",
+                                  "The stick is too small.\nISO: %s\nStick: %s") %
                                 (human(iso_size), human(dinfo["size"])))
             return
 
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("Alle Daten werden gelöscht")
-        box.setText("<b>Alle Daten auf diesem Gerät werden gelöscht:</b><br><br>%s<br><br>"
-                    "Fortfahren?" % self.dev_combo.currentText())
+        box.setWindowTitle(t("Alle Daten werden gelöscht", "All data will be erased"))
+        box.setText(t("<b>Alle Daten auf diesem Gerät werden gelöscht:</b><br><br>%s<br><br>Fortfahren?",
+                      "<b>All data on this device will be erased:</b><br><br>%s<br><br>Continue?")
+                    % self.dev_combo.currentText())
         box.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
-        box.button(QMessageBox.Yes).setText("Ja, Stick löschen und erstellen")
-        box.button(QMessageBox.Cancel).setText("Abbrechen")
+        box.button(QMessageBox.Yes).setText(t("Ja, Stick löschen und erstellen", "Yes, erase and create"))
+        box.button(QMessageBox.Cancel).setText(t("Abbrechen", "Cancel"))
         box.setDefaultButton(QMessageBox.Cancel)
         box.exec()
         if box.clickedButton() != box.button(QMessageBox.Yes):
@@ -398,7 +563,8 @@ class MainWindow(QMainWindow):
         if prog is None:
             QMessageBox.critical(
                 self, APP_NAME,
-                "pkexec wurde nicht gefunden.\n\nStarte das Programm im Terminal so:\n\n"
+                t("pkexec wurde nicht gefunden.\n\nStarte das Programm im Terminal so:\n\n",
+                  "pkexec was not found.\n\nRun the program in a terminal like this:\n\n") +
                 "sudo %s --cli --iso \"%s\" --device %s" %
                 (os.environ.get("APPIMAGE", sys.argv[0]), iso, dev))
             return
@@ -409,7 +575,7 @@ class MainWindow(QMainWindow):
         self.last_error = None
         self.cancel_requested = False
         self.bar.setValue(0)
-        self.status.setText("Warte auf Passwort-Eingabe …")
+        self.status.setText(t("Warte auf Passwort-Eingabe …", "Waiting for password …"))
         self._buf = b""
 
         self.proc = QProcess(self)
@@ -423,7 +589,7 @@ class MainWindow(QMainWindow):
 
     def on_proc_error(self, err):
         if err == QProcess.FailedToStart:
-            self.append_log("Prozess konnte nicht gestartet werden.")
+            self.append_log(t("Prozess konnte nicht gestartet werden.", "Process could not be started."))
 
     def on_stdout(self):
         self._buf += bytes(self.proc.readAllStandardOutput())
@@ -448,7 +614,7 @@ class MainWindow(QMainWindow):
                 self.append_log(msg.get("msg", ""))
             elif t == "error":
                 self.last_error = msg.get("msg", "")
-                self.append_log("FEHLER: " + self.last_error)
+                self.append_log(t("FEHLER: ", "ERROR: ") + self.last_error)
 
     def on_stderr(self):
         data = bytes(self.proc.readAllStandardError()).decode("utf-8", "replace")
@@ -464,45 +630,51 @@ class MainWindow(QMainWindow):
         self.refresh_devices(force=True)
         if self.finished_ok:
             self.bar.setValue(1000)
-            self.status.setText("Fertig!")
-            QMessageBox.information(
-                self, "Fertig",
-                "<b>Der Stick ist fertig!</b><br><br>Du kannst ihn jetzt abziehen.<br><br>"
-                "Booten: Beim Start des Ziel-PCs das Boot-Menü öffnen (meist F12, F11, F8 oder "
-                "Esc).<br>Steam Deck: <i>Lautstärke runter</i> gedrückt halten und "
-                "<i>Power</i> drücken.")
+            self.status.setText(t("Fertig!", "Done!"))
+            action = self.after_combo.currentData()
+            if action in ("suspend", "poweroff") and self.countdown_after(action):
+                return
+            self.show_done()
             return
         if self.last_error:
-            self.status.setText("Fehlgeschlagen.")
-            QMessageBox.critical(self, "Fehlgeschlagen", self.last_error)
+            self.status.setText(t("Fehlgeschlagen.", "Failed."))
+            QMessageBox.critical(self, t("Fehlgeschlagen", "Failed"), self.last_error)
             return
         if code in (126, 127) and not self.cancel_requested:
-            self.status.setText("Keine Berechtigung.")
+            self.status.setText(t("Keine Berechtigung.", "Permission denied."))
             QMessageBox.warning(
-                self, "Keine Berechtigung",
-                "Die Passwort-Abfrage wurde abgebrochen oder abgelehnt.<br><br>"
-                "<b>Steam Deck / SteamOS:</b> Der Benutzer <i>deck</i> braucht ein Passwort. "
-                "Falls du noch keins hast: Konsole öffnen und <code>passwd</code> eingeben, "
-                "dann nochmal versuchen.")
+                self, t("Keine Berechtigung", "Permission denied"),
+                t("Die Passwort-Abfrage wurde abgebrochen oder abgelehnt.<br><br>"
+                  "<b>Steam Deck / SteamOS:</b> Der Benutzer <i>deck</i> braucht ein Passwort. "
+                  "Falls du noch keins hast: Konsole öffnen und <code>passwd</code> eingeben, "
+                  "dann nochmal versuchen.",
+                  "The password prompt was cancelled or denied.<br><br>"
+                  "<b>Steam Deck / SteamOS:</b> the user <i>deck</i> needs a password. "
+                  "If you don't have one yet: open Konsole, run <code>passwd</code>, "
+                  "then try again."))
             return
-        self.status.setText("Abgebrochen." if self.cancel_requested else
-                            "Beendet (Code %d)." % code)
+        self.status.setText(t("Abgebrochen.", "Cancelled.") if self.cancel_requested else
+                            t("Beendet (Code %d).", "Exited (code %d).") % code)
         if not self.cancel_requested:
             if not self.log_toggle.isChecked():
                 self.log_toggle.setChecked(True)
-            QMessageBox.critical(self, "Fehler",
-                                 "Der Vorgang wurde unerwartet beendet (Code %d).\n"
-                                 "Details siehe Protokoll." % code)
+            QMessageBox.critical(self, t("Fehler", "Error"),
+                                 t("Der Vorgang wurde unerwartet beendet (Code %d).\n"
+                                   "Details siehe Protokoll.",
+                                   "The process ended unexpectedly (code %d).\n"
+                                   "See the details log.") % code)
 
     def cancel(self):
         if self.proc is None:
             return
-        if QMessageBox.question(self, "Abbrechen?",
-                                "Vorgang abbrechen? Der Stick ist danach unbrauchbar, bis er "
-                                "neu erstellt wird.") != QMessageBox.Yes:
+        if QMessageBox.question(self, t("Abbrechen?", "Cancel?"),
+                                t("Vorgang abbrechen? Der Stick ist danach unbrauchbar, bis er "
+                                  "neu erstellt wird.",
+                                  "Cancel? The stick will be unusable until it is created "
+                                  "again.")) != QMessageBox.Yes:
             return
         self.cancel_requested = True
-        self.status.setText("Breche ab …")
+        self.status.setText(t("Breche ab …", "Cancelling …"))
         try:
             self.proc.write(b"cancel\n")
             self.proc.closeWriteChannel()
@@ -511,9 +683,11 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e):
         if self.proc is not None:
-            if QMessageBox.question(self, "Beenden?",
-                                    "Der Stick wird gerade erstellt. Wirklich abbrechen und "
-                                    "beenden?") != QMessageBox.Yes:
+            if QMessageBox.question(self, t("Beenden?", "Quit?"),
+                                    t("Der Stick wird gerade erstellt. Wirklich abbrechen und "
+                                      "beenden?",
+                                      "The stick is being created. Really cancel and "
+                                      "quit?")) != QMessageBox.Yes:
                 e.ignore()
                 return
             self.cancel_requested = True
@@ -526,6 +700,31 @@ class MainWindow(QMainWindow):
         e.accept()
 
 
+MAIN = [None]
+
+
+def set_main(w):
+    MAIN[0] = w
+
+
+def install_qt_translator(app):
+    from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
+    old = getattr(app, "_qt_tr", None)
+    if old is not None:
+        app.removeTranslator(old)
+        app._qt_tr = None
+    if LANG != "de":
+        return
+    try:
+        tr = QTranslator(app)
+        if tr.load(QLocale("de_DE"), "qtbase", "_",
+                   QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)):
+            app.installTranslator(tr)
+            app._qt_tr = tr
+    except Exception:
+        pass
+
+
 def main():
     selftest = "--selftest" in sys.argv
     argv = [a for a in sys.argv if a != "--selftest"]
@@ -536,22 +735,23 @@ def main():
     if icon_path and os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
     app.setStyle("Fusion")
-    try:
-        from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
-        tr = QTranslator(app)
-        if tr.load(QLocale.system(), "qtbase", "_",
-                   QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)):
-            app.installTranslator(tr)
-    except Exception:
-        pass
+    install_qt_translator(app)
     iso = next((a for a in argv[1:] if not a.startswith("-") and os.path.isfile(a)), None)
     w = MainWindow(iso)
+    set_main(w)
     w.show()
     if selftest:
+        def switch():
+            # exercise the language switch once
+            MAIN[0].lang_combo.setCurrentIndex(1 - MAIN[0].lang_combo.currentIndex())
+
         def done():
-            print("GUI_SELFTEST_OK devices=%d platform=%s" %
-                  (len(w.devices), QApplication.platformName()), flush=True)
+            mw = MAIN[0]
+            print("GUI_SELFTEST_OK devices=%d platform=%s lang=%s version=%s date=%s" %
+                  (len(mw.devices), QApplication.platformName(), LANG, BUILD.get("version"),
+                   build_date_text()), flush=True)
             app.quit()
+        QTimer.singleShot(700, switch)
         QTimer.singleShot(1500, done)
     return app.exec()
 

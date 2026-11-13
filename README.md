@@ -1,101 +1,115 @@
 # WinUSB-SteamOS
 
-Bootfähige USB-Sticks erstellen, direkt unter **SteamOS** (Desktop-Modus), auf dem Steam Deck und unter anderen Linux-Systemen:
+Create bootable USB sticks directly on **SteamOS** (Desktop Mode), the Steam Deck and other Linux systems:
 
-- **Windows 10/11** aus der offiziellen ISO (wie Rufus/WoeUSB)
-- **SteamOS-Recovery-Image** von Valve (`steamdeck-repair-….img.bz2` / `.zip`) und **Linux-ISOs** (Ubuntu, Bazzite, Fedora …), 1:1 geschrieben und überprüft wie mit Etcher
-Ein einziges AppImage: nichts installieren, kein `steamos-readonly disable`, kein pacman.
+- **Windows 10/11** installer sticks from the official ISO (like Rufus / WoeUSB)
+- **SteamOS recovery image** from Valve (`steamdeck-repair-….img.bz2` / `.zip`) and **Linux ISOs** (Ubuntu, Bazzite, Fedora …), written 1:1 and verified (like Etcher)
+
+One single AppImage. Nothing to install, no `steamos-readonly disable`, no pacman.
+The interface is available in **English and German** (picked automatically from your system language, switchable in the app).
 
 ![build](https://github.com/elkarbeenus/WinUSB-SteamOS/actions/workflows/build.yml/badge.svg)
 
-## Warum nicht WoeUSB-ng?
+## Why not WoeUSB-ng?
 
-WoeUSB-ng (auch als AppImage) will unter `/media/…` einhängen. Auf SteamOS ist das Root-Dateisystem schreibgeschützt, deshalb kommt
-`Einhängepunkt-Verzeichnis /media/woeusb_source_… konnte nicht erstellt werden`.
+WoeUSB-ng (including its AppImage) mounts the ISO under `/media/…`. On SteamOS the root filesystem is read-only, so it fails with
+`mount point directory /media/woeusb_source_… could not be created`.
 
-WinUSB-SteamOS hängt **nur in einem temporären Ordner unter `/tmp`** ein und schreibt nirgends ins System.
+WinUSB-SteamOS only mounts inside a **temporary folder under `/tmp`** and never writes to the system.
 
 | | WinUSB-SteamOS | WoeUSB-ng AppImage |
 |---|---|---|
-| Läuft auf schreibgeschütztem SteamOS | ✅ | ❌ (`/media`) |
-| Benötigte Systempakete | keine (wimlib + mkfs.fat sind dabei) | wimlib, parted, grub … |
-| Windows-11-Bypass (TPM/Secure Boot/RAM) | ✅ wie Rufus | ❌ |
-| install.wim > 4 GB | wird in `install.swm`-Teile aufgeteilt | ✅ |
+| Works on read-only SteamOS | ✅ | ❌ (`/media`) |
+| Required system packages | none (wimlib + mkfs.fat are bundled) | wimlib, parted, grub … |
+| Windows 11 bypass (TPM / Secure Boot / RAM) | ✅ like Rufus | ❌ |
+| install.wim > 4 GB | split into `install.swm` parts | ✅ |
+| SteamOS / Linux images (1:1 + verify) | ✅ | ❌ |
+| English / German UI | ✅ | – |
 
-## Benutzung
+## Usage
 
-1. Bei [**Releases**](https://github.com/elkarbeenus/WinUSB-SteamOS/releases/latest) die Datei `WinUSB-SteamOS-x86_64.AppImage` herunterladen.
-2. Rechtsklick → *Eigenschaften* → *Berechtigungen* → **Ausführbar** anhaken.
-3. Doppelklick → ISO/Image wählen (oder aufs Fenster ziehen) → USB-Stick wählen → **Stick erstellen**.
-   Der Modus wird automatisch erkannt: Windows-ISO → Windows-Installer, alles andere → 1:1.
-4. Passwort eingeben (die Abfrage kommt vom System, nötig für den Zugriff auf den Stick).
+1. Download `WinUSB-SteamOS-x86_64.AppImage` from [**Releases**](https://github.com/elkarbeenus/WinUSB-SteamOS/releases/latest).
+2. Right-click → *Properties* → *Permissions* → tick **Is executable**.
+3. Double-click → choose an ISO/image (or drop it onto the window) → choose the USB stick → **Create stick**.
+   The mode is detected automatically: Windows ISO → Windows installer, everything else → written 1:1.
+4. Enter your password (the system asks for it; it is needed to write to the stick).
 
-> **Steam Deck:** Der Benutzer `deck` hat ab Werk **kein Passwort**. Einmal in der Konsole `passwd` eingeben und eins festlegen, sonst kann die Passwortabfrage nicht bestätigt werden.
+Optional: **When finished → Sleep / Shut down this device** (with a 30-second countdown you can cancel).
 
-**Booten:** Am Ziel-PC das Boot-Menü öffnen (meist F12 / F11 / F8 / Esc).
-Steam Deck: **Lautstärke runter** gedrückt halten und **Power** drücken.
+> **Steam Deck:** the `deck` user has **no password** out of the box. Open Konsole once, run `passwd` and set one. Otherwise the password prompt can't be confirmed.
 
-### SteamOS-Stick (Recovery/Installation)
+**Booting:** open the boot menu when the target PC starts (usually F12 / F11 / F8 / Esc).
+Steam Deck: hold **Volume down** and press **Power**.
 
-Recovery-Image bei Valve herunterladen (*help.steampowered.com → Steam Deck Recovery Image*), die `.bz2`- oder `.zip`-Datei direkt auswählen. Entpacken ist nicht nötig. Dann **Stick erstellen**. Danach wird automatisch geprüft, ob alles korrekt auf dem Stick gelandet ist.
+### SteamOS stick (recovery / installation)
 
-### Text-Modus (Terminal)
+Download the recovery image from Valve (*help.steampowered.com → Steam Deck Recovery Image*) and choose the `.bz2` or `.zip` file directly. There is no need to extract it. Click **Create stick**. Afterwards the stick is read back and compared automatically.
+
+### Text mode (terminal)
 
 ```bash
 sudo ./WinUSB-SteamOS-x86_64.AppImage --cli --iso ~/Downloads/Win11.iso --device /dev/sdX \
-     [--win11-bypass] [--local-account]
+     [--win11-bypass] [--local-account] [--lang en|de]
 
-# Image 1:1 (z.B. SteamOS-Recovery)
+# write an image 1:1 (e.g. SteamOS recovery)
 sudo ./WinUSB-SteamOS-x86_64.AppImage --cli --image steamdeck-repair.img.bz2 --device /dev/sdX
 ```
 
-## Wie es funktioniert (Windows-Modus)
+`./WinUSB-SteamOS-x86_64.AppImage --version` shows the version and build date.
 
-Angelehnt an Rufus (FAT32-Modus) und WoeUSB-ng:
+## How it works
 
-1. ISO wird schreibgeschützt per Loop-Device unter `/tmp/winusb-XXXX/iso` eingehängt (UDF).
-2. Alte Partitionstabellen (auch GPT-Backup am Ende) werden gelöscht. Es wird eine **MBR**-Tabelle mit **einer FAT32-Partition** (Typ `0x0C`, aktiv) geschrieben, direkt im Programm, ohne parted oder sfdisk.
-3. `mkfs.fat -F 32` (gebündelt).
-4. Alle Dateien werden kopiert, regelmäßig mit `fdatasync`, damit der Fortschrittsbalken stimmt und am Ende kein minutenlanges „sync“ kommt.
-5. `install.wim` > 4 GB wird mit **wimlib** in `install.swm`, `install2.swm` … aufgeteilt. Das unterstützt Windows Setup nativ.
-6. Optional: `autounattend.xml` mit den Rufus-Tweaks (LabConfig-Bypass, BypassNRO).
+### Windows mode
 
-Der Stick bootet per **UEFI**: alle PCs ab ca. 2012 und das Steam Deck. Windows 11 setzt UEFI sowieso voraus.
+Based on Rufus (FAT32 mode) and WoeUSB-ng:
 
-### Image-Modus
+1. The ISO is mounted read-only via a loop device under `/tmp/winusb-XXXX/iso` (UDF).
+2. Old partition tables are wiped, including the GPT backup at the end. A new **MBR** with **one FAT32 partition** (type `0x0C`, active) is written directly by the program, without parted or sfdisk.
+3. `mkfs.fat -F 32` (bundled).
+4. All files are copied with regular `fdatasync` calls, so the progress bar is honest and there is no endless "sync" at the end.
+5. An `install.wim` larger than 4 GB is split with **wimlib** into `install.swm`, `install2.swm` …, which Windows Setup supports natively.
+6. Optional: `autounattend.xml` with the Rufus tweaks (LabConfig bypass, BypassNRO).
 
-Die Datei wird direkt entpackt (bzip2, xz, gzip, zip) und blockweise auf den Stick geschrieben. Dabei wird eine SHA-256-Prüfsumme berechnet. Danach wird der Stick zurückgelesen und verglichen (abschaltbar). Hybrid-ISOs (mit MBR, z.B. Ubuntu) werden automatisch erkannt.
+Windows sticks boot via **UEFI**: all PCs since about 2012 and the Steam Deck. Windows 11 requires UEFI anyway.
 
-### Rechte und AppImage
+### Image mode
 
-Die Oberfläche läuft als normaler Benutzer. Für das Schreiben auf den Stick startet sie sich selbst über
-`pkexec env APPIMAGE_EXTRACT_AND_RUN=1 <AppImage> --worker …`: root kann nicht in den FUSE-Mount eines anderen Benutzers schauen. Das ist ein typischer Grund, warum andere AppImages mit pkexec scheitern.
-Zum Abbrechen wird dem Root-Prozess einfach die Eingabe geschlossen.
+The file is decompressed on the fly (bzip2, xz, gzip, zip) and written block by block while a SHA-256 checksum is calculated. Afterwards the stick is read back and compared (can be turned off). Hybrid ISOs (with an MBR, e.g. Ubuntu) are detected automatically.
 
-Sicherheitsprüfungen: nur ganze USB-/Wechseldatenträger, keine Geräte mit eingehängtem System (`/`, `/home`, `/var` …), keine LVM/RAID/LUKS-Geräte.
+### Privileges and the AppImage
 
-## Selbst bauen
+The interface runs as your normal user. To write to the stick it starts itself again through
+`pkexec env APPIMAGE_EXTRACT_AND_RUN=1 <AppImage> --worker …`: root cannot look into another user's FUSE mount. That is a typical reason why other AppImages fail with pkexec.
+To cancel, the GUI simply closes the root process's input.
+
+Safety checks: only whole USB/removable drives; no devices with a mounted system (`/`, `/home`, `/var` …); no LVM/RAID/LUKS devices.
+
+## Building
 
 ```bash
-# Ubuntu 22.04 (oder Container), braucht uv, patchelf, build-essential
-./build.sh
+# Ubuntu 22.04 (or a container), needs uv, patchelf, build-essential
+APP_VERSION=1.0.0 ./build.sh
 # -> dist/WinUSB-SteamOS-x86_64.AppImage
 ```
 
-Inhalt: portables Python (python-build-standalone), PySide6 (Qt 6), statisch gebautes `mkfs.fat`, `wimlib-imagex`, AppImage-Runtime (static, braucht kein libfuse2).
+Contents: portable Python (python-build-standalone), PySide6 (Qt 6), statically built `mkfs.fat`, `wimlib-imagex`, AppImage runtime (static, does not need libfuse2).
 
-## CI-Tests
+## CI tests
 
-Jeder Push baut das AppImage und testet es (siehe `tests/ci_test.sh`):
+Every push builds the AppImage and tests it (see `tests/ci_test.sh`):
 
-- echte UDF-ISO wie bei Microsoft, mit `install.wim` > 4 GB
-- 8-GB-„Stick“ (Loop-Device) mit altem GPT + ext4 darauf
-- Ausführung in einem **Arch-Linux-Container** (Basis von SteamOS), **ohne FUSE**, genau wie über pkexec
-- Prüfung: Partitionstabelle, `fsck.fat`, Prüfsummen, `wimlib-imagex verify` der Teile, autounattend.xml
-- Image-Modus mit `.img.bz2` und `.zip` (wie das SteamOS-Recovery-Image): Byte-für-Byte-Vergleich, GPT sichtbar
-- Sicherheitsprüfungen (Partition statt Gerät, internes Laufwerk, Abbruch)
-- GUI-Start auf einem virtuellen X-Server unter Arch
+- a real UDF ISO like Microsoft's, with an `install.wim` > 4 GB
+- an 8 GB "stick" (loop device) with an old GPT + ext4 on it
+- runs inside an **Arch Linux container** (SteamOS is based on Arch), **without FUSE**, exactly like via pkexec
+- checks: partition table, `fsck.fat`, checksums, `wimlib-imagex verify` of the split parts, autounattend.xml
+- image mode with `.img.bz2` and `.zip` (like the SteamOS recovery image): byte-for-byte comparison, GPT visible
+- safety checks (partition instead of disk, internal drive, cancel)
+- GUI start on a virtual X server under Arch, including the language switch
 
-## Lizenz
+## Credits
 
-MIT. Gebündelte Programme: wimlib (LGPLv3+/GPLv3+), dosfstools (GPLv3+), Qt/PySide6 (LGPLv3), Python (PSF).
+Created by **Dominic Lesina × Claude**.
+
+## License
+
+MIT. Bundled software: wimlib (LGPLv3+/GPLv3+), dosfstools (GPLv3+), Qt/PySide6 (LGPLv3), Python (PSF).

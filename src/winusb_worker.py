@@ -54,6 +54,88 @@ CRITICAL_MOUNTS = {"/", "/home", "/var", "/usr", "/boot", "/efi", "/etc",
                    "/opt", "/srv", "/root", "/var/home", "/run/media/root"}
 
 # --------------------------------------------------------------------------
+# language (German / English) – German text is the key
+# --------------------------------------------------------------------------
+
+def _detect_lang():
+    v = os.environ.get("WINUSB_LANG") or os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") \
+        or os.environ.get("LANG") or ""
+    return "de" if v.lower().startswith("de") else "en"
+
+
+LANG = _detect_lang()
+
+EN = {
+    "Benötigtes Programm '%s' wurde nicht gefunden.": "Required program '%s' was not found.",
+    'Befehl fehlgeschlagen (%d): %s\n%s': 'Command failed (%d): %s\n%s',
+    'Gerät %s existiert nicht.': 'Device %s does not exist.',
+    '%s ist kein Blockgerät.': '%s is not a block device.',
+    '%s ist eine Partition. Bitte das ganze Gerät wählen (z.B. /dev/sdc).': '%s is a partition. Please select the whole device (e.g. /dev/sdc).',
+    '%s enthält das System (%s ist unter %s eingehängt). Abbruch!': '%s contains the running system (%s is mounted at %s). Aborting!',
+    '%s wird von LVM/RAID/Verschlüsselung benutzt. Abbruch!': '%s is used by LVM/RAID/encryption. Aborting!',
+    '%s ist kein USB-/Wechseldatenträger. Aus Sicherheitsgründen abgebrochen.': '%s is not a USB/removable drive. Aborted for safety reasons.',
+    'ISO eingehängt (%s).': 'ISO mounted (%s).',
+    'ISO konnte nicht geöffnet werden:\n': 'Could not open the ISO:\n',
+    'Hänge %s aus (%s) ...': 'Unmounting %s (%s) ...',
+    '  Warnung: %s konnte nicht normal ausgehängt werden.': '  Warning: %s could not be unmounted cleanly.',
+    'Gerät ist zu klein (%d MB).': 'Device is too small (%d MB).',
+    'Die neue Partition %s ist nicht erschienen. Stick abziehen, neu einstecken und nochmal versuchen.': 'The new partition %s did not appear. Unplug the stick, plug it back in and try again.',
+    'install.wim ist größer als 4 GB -> wird in install.swm-Teile aufgeteilt ...': 'install.wim is larger than 4 GB -> splitting into install.swm parts ...',
+    'Teile install.wim auf': 'Splitting install.wim',
+    'wimlib-imagex split fehlgeschlagen:\n': 'wimlib-imagex split failed:\n',
+    'Aufgeteilt in: ': 'Split into: ',
+    'Die ISO bringt bereits eine autounattend.xml mit – wird nicht überschrieben.': 'The ISO already contains an autounattend.xml – not overwriting it.',
+    'TPM/Secure-Boot/RAM/CPU-Prüfung umgehen': 'bypass TPM/Secure Boot/RAM/CPU check',
+    'Einrichtung ohne Microsoft-Konto': 'setup without Microsoft account',
+    'autounattend.xml geschrieben: ': 'autounattend.xml written: ',
+    'Die ZIP-Datei ist leer.': 'The ZIP file is empty.',
+    'ZIP: schreibe %s (%.2f GB)': 'ZIP: writing %s (%.2f GB)',
+    '.zst-Dateien werden nicht unterstützt. Bitte vorher entpacken.': '.zst files are not supported. Please extract first.',
+    'Root-Rechte benötigt.': 'Root privileges required.',
+    'Datei nicht gefunden: %s': 'File not found: %s',
+    'Prüfe Gerät': 'Checking device',
+    'Der Stick ist zu klein: Image %.2f GB, Stick %.2f GB.': 'The stick is too small: image %.2f GB, stick %.2f GB.',
+    'Schreibe Image 1:1 auf %s ...': 'Writing image 1:1 to %s ...',
+    'Der Stick ist zu klein für dieses Image (%.2f GB).': 'The stick is too small for this image (%.2f GB).',
+    'Schreibe Image (%.2f GB)': 'Writing image (%.2f GB)',
+    '%.2f GB geschrieben.': '%.2f GB written.',
+    'Überprüfe geschriebene Daten ...': 'Verifying written data ...',
+    'Überprüfe': 'Verifying',
+    'Überprüfung fehlgeschlagen: Die Daten auf dem Stick stimmen nicht mit dem Image überein. Stick defekt oder gefälscht?': 'Verification failed: the data on the stick does not match the image. Faulty or fake stick?',
+    'Überprüfung OK (SHA-256 %s…).': 'Verification OK (SHA-256 %s…).',
+    'Fertig': 'Done',
+    'Fertig! Das Image wurde geschrieben und der Stick kann abgezogen werden.': 'Done! The image was written and the stick can be removed.',
+    'ISO-Datei nicht gefunden: %s': 'ISO file not found: %s',
+    'Arbeitsordner: %s (nur temporär, nichts im System)': 'Working directory: %s (temporary only, nothing in the system)',
+    'Öffne ISO': 'Opening ISO',
+    'Warnung: efi/boot/bootx64.efi fehlt – Stick bootet evtl. nicht im UEFI-Modus.': 'Warning: efi/boot/bootx64.efi is missing – the stick may not boot in UEFI mode.',
+    'Das sieht nicht nach einer Windows-Installations-ISO aus (sources/install.wim bzw. install.esd fehlt).': 'This does not look like a Windows installation ISO (sources/install.wim or install.esd missing).',
+    'Die Datei %s ist größer als 4 GB und kann nicht auf FAT32 aufgeteilt werden.': 'The file %s is larger than 4 GB and cannot be split for FAT32.',
+    'ISO: %d Dateien, %.2f GB': 'ISO: %d files, %.2f GB',
+    'Bereite Stick vor': 'Preparing stick',
+    'Schreibe neue Partitionstabelle (MBR, FAT32) auf %s ...': 'Writing new partition table (MBR, FAT32) to %s ...',
+    'Der Stick ist zu klein: %.1f GB benötigt, %.1f GB vorhanden.': 'The stick is too small: %.1f GB needed, %.1f GB available.',
+    'Formatiere FAT32': 'Formatting FAT32',
+    'Formatiere %s als FAT32 ...': 'Formatting %s as FAT32 ...',
+    'Kopiere Dateien ...': 'Copying files ...',
+    'Kopiere ': 'Copying ',
+    'Schreibe Puffer auf den Stick': 'Flushing buffers to the stick',
+    'Schreibe restliche Daten auf den Stick (sync) ...': 'Writing remaining data to the stick (sync) ...',
+    'Hänge aus': 'Unmounting',
+    'Fertig! Der Stick ist bereit und kann abgezogen werden.': 'Done! The stick is ready and can be removed.',
+    'ACHTUNG: Alle Daten auf %s werden gelöscht!': 'WARNING: All data on %s will be erased!',
+    "Zum Fortfahren 'ja' eingeben: ": "Type 'yes' to continue: ",
+    'Abgebrochen.': 'Cancelled.',
+    'Abgebrochen. Der Stick ist unvollständig und muss neu erstellt werden.': 'Cancelled. The stick is incomplete and must be created again.',
+    'Unerwarteter Fehler: %s\n%s': 'Unexpected error: %s\n%s',
+}
+
+
+def _(text):
+    return EN.get(text, text) if LANG == "en" else text
+
+
+# --------------------------------------------------------------------------
 # output helpers
 # --------------------------------------------------------------------------
 
@@ -71,7 +153,7 @@ def emit(kind, **kw):
             sys.stdout.write("\r[%5.1f%%] %-50s" % (kw["pct"], kw.get("stage", "")[:50]))
             sys.stdout.flush()
         elif kind == "error":
-            sys.stdout.write("\nFEHLER: %s\n" % kw["msg"])
+            sys.stdout.write("\n%s: %s\n" % ("FEHLER" if LANG == "de" else "ERROR", kw["msg"]))
         else:
             sys.stdout.write("\n" + kw.get("msg", ""))
         sys.stdout.flush()
@@ -153,7 +235,7 @@ def find_tool(name):
 def need_tool(name):
     p = find_tool(name)
     if not p:
-        raise WorkerError("Benötigtes Programm '%s' wurde nicht gefunden." % name)
+        raise WorkerError(_("Benötigtes Programm '%s' wurde nicht gefunden.") % name)
     return p
 
 
@@ -164,7 +246,7 @@ def run(cmd, check=True, quiet=False):
         for line in proc.stdout.strip().splitlines()[-15:]:
             log("  " + line)
     if check and proc.returncode != 0:
-        raise WorkerError("Befehl fehlgeschlagen (%d): %s\n%s" %
+        raise WorkerError(_("Befehl fehlgeschlagen (%d): %s\n%s") %
                           (proc.returncode, " ".join(cmd), proc.stdout.strip()[-800:]))
     return proc
 
@@ -271,22 +353,22 @@ def sector_size(fd):
 
 def validate_target(dev, force_any):
     if not os.path.exists(dev):
-        raise WorkerError("Gerät %s existiert nicht." % dev)
+        raise WorkerError(_("Gerät %s existiert nicht.") % dev)
     st = os.stat(dev)
     if not stat.S_ISBLK(st.st_mode):
-        raise WorkerError("%s ist kein Blockgerät." % dev)
+        raise WorkerError(_("%s ist kein Blockgerät.") % dev)
     dsys = sys_name(dev)
     if (dsys / "partition").exists():
-        raise WorkerError("%s ist eine Partition. Bitte das ganze Gerät wählen (z.B. /dev/sdc)." % dev)
+        raise WorkerError(_("%s ist eine Partition. Bitte das ganze Gerät wählen (z.B. /dev/sdc).") % dev)
     for real, mnt in mounts_of_disk(dsys):
         if mnt in CRITICAL_MOUNTS or mnt.startswith("/usr") or mnt.startswith("/home") \
                 or mnt.startswith("/var") or mnt.startswith("/boot"):
-            raise WorkerError("%s enthält das System (%s ist unter %s eingehängt). Abbruch!" %
+            raise WorkerError(_("%s enthält das System (%s ist unter %s eingehängt). Abbruch!") %
                               (dev, real, mnt))
     if holders_busy(dsys):
-        raise WorkerError("%s wird von LVM/RAID/Verschlüsselung benutzt. Abbruch!" % dev)
+        raise WorkerError(_("%s wird von LVM/RAID/Verschlüsselung benutzt. Abbruch!") % dev)
     if not force_any and not is_removable(dsys):
-        raise WorkerError("%s ist kein USB-/Wechseldatenträger. Aus Sicherheitsgründen abgebrochen." % dev)
+        raise WorkerError(_("%s ist kein USB-/Wechseldatenträger. Aus Sicherheitsgründen abgebrochen.") % dev)
     return dsys
 
 
@@ -319,13 +401,13 @@ def mount_iso(iso, target):
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         if p.returncode == 0:
             if find_ci(Path(target), "sources") is not None:
-                log("ISO eingehängt (%s)." % fstype)
+                log(_("ISO eingehängt (%s).") % fstype)
                 return
             umount(target)
             errors.append("%s: kein 'sources'-Ordner" % fstype)
         else:
             errors.append("%s: %s" % (fstype, p.stdout.strip()))
-    raise WorkerError("ISO konnte nicht geöffnet werden:\n" + "\n".join(errors))
+    raise WorkerError(_("ISO konnte nicht geöffnet werden:\n") + "\n".join(errors))
 
 
 def find_ci(base, *parts):
@@ -351,9 +433,9 @@ def find_ci(base, *parts):
 
 def unmount_all(dsys):
     for real, mnt in sorted(mounts_of_disk(dsys), key=lambda x: -len(x[1])):
-        log("Hänge %s aus (%s) ..." % (real, mnt))
+        log(_("Hänge %s aus (%s) ...") % (real, mnt))
         if not umount(mnt):
-            log("  Warnung: %s konnte nicht normal ausgehängt werden." % mnt)
+            log(_("  Warnung: %s konnte nicht normal ausgehängt werden.") % mnt)
     # swap on that disk?
     try:
         with open("/proc/swaps") as f:
@@ -372,7 +454,7 @@ def write_mbr(dev):
         size = device_size(fd)
         ss = sector_size(fd)
         if size < 1024 ** 3:
-            raise WorkerError("Gerät ist zu klein (%d MB)." % (size // 1024 ** 2))
+            raise WorkerError(_("Gerät ist zu klein (%d MB).") % (size // 1024 ** 2))
         zero = b"\0" * ALIGN
         # beginning (MBR, GPT header, old FS superblocks) ...
         os.pwrite(fd, zero, 0)
@@ -446,8 +528,7 @@ def reread_partitions(dev, dsys):
             except OSError:
                 pass
         time.sleep(0.25)
-    raise WorkerError("Die neue Partition %s ist nicht erschienen. Stick abziehen, neu einstecken "
-                      "und nochmal versuchen." % part)
+    raise WorkerError(_("Die neue Partition %s ist nicht erschienen. Stick abziehen, neu einstecken und nochmal versuchen.") % part)
 
 
 def format_fat32(part):
@@ -500,7 +581,7 @@ def copy_file(src, dst, prog, label):
 def split_wim(wim, dst_dir, prog):
     wimlib = need_tool("wimlib-imagex")
     target = os.path.join(dst_dir, "install.swm")
-    log("install.wim ist größer als 4 GB -> wird in install.swm-Teile aufgeteilt ...")
+    log(_("install.wim ist größer als 4 GB -> wird in install.swm-Teile aufgeteilt ..."))
     proc = subprocess.Popen([wimlib, "split", str(wim), target, str(SPLIT_SIZE_MB)],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                             errors="replace")
@@ -532,14 +613,14 @@ def split_wim(wim, dst_dir, prog):
         if time.monotonic() - last_sync > 3:
             os.sync()                      # keep the page cache from piling up
             last_sync = time.monotonic()
-        prog.show("Teile install.wim auf", extra=min(written(), wsize))
+        prog.show(_("Teile install.wim auf"), extra=min(written(), wsize))
         time.sleep(0.4)
     t.join(timeout=2)
     if proc.returncode != 0:
-        raise WorkerError("wimlib-imagex split fehlgeschlagen:\n" + "\n".join(out_lines[-10:]))
-    prog.add(wsize, "Teile install.wim auf")
+        raise WorkerError(_("wimlib-imagex split fehlgeschlagen:\n") + "\n".join(out_lines[-10:]))
+    prog.add(wsize, _("Teile install.wim auf"))
     parts = sorted(e.name for e in os.scandir(dst_dir) if e.name.lower().endswith(".swm"))
-    log("Aufgeteilt in: " + ", ".join(parts))
+    log(_("Aufgeteilt in: ") + ", ".join(parts))
 
 
 AUTOUNATTEND_HEAD = """<?xml version="1.0" encoding="utf-8"?>
@@ -591,7 +672,7 @@ AUTOUNATTEND_NRO = """  <settings pass="specialize">
 def write_autounattend(usb_root, bypass_hw, local_account):
     existing = find_ci(Path(usb_root), "autounattend.xml")
     if existing is not None:
-        log("Die ISO bringt bereits eine autounattend.xml mit – wird nicht überschrieben.")
+        log(_("Die ISO bringt bereits eine autounattend.xml mit – wird nicht überschrieben."))
         return
     xml = AUTOUNATTEND_HEAD
     if bypass_hw:
@@ -606,10 +687,10 @@ def write_autounattend(usb_root, bypass_hw, local_account):
         os.fsync(f.fileno())
     what = []
     if bypass_hw:
-        what.append("TPM/Secure-Boot/RAM/CPU-Prüfung umgehen")
+        what.append(_("TPM/Secure-Boot/RAM/CPU-Prüfung umgehen"))
     if local_account:
-        what.append("Einrichtung ohne Microsoft-Konto")
-    log("autounattend.xml geschrieben: " + ", ".join(what))
+        what.append(_("Einrichtung ohne Microsoft-Konto"))
+    log(_("autounattend.xml geschrieben: ") + ", ".join(what))
 
 
 # --------------------------------------------------------------------------
@@ -682,10 +763,10 @@ def open_image(path):
         zf = zipfile.ZipFile(path)
         members = [m for m in zf.infolist() if not m.is_dir()]
         if not members:
-            raise WorkerError("Die ZIP-Datei ist leer.")
+            raise WorkerError(_("Die ZIP-Datei ist leer."))
         pref = [m for m in members if m.filename.lower().endswith((".img", ".iso", ".raw"))]
         m = max(pref or members, key=lambda x: x.file_size)
-        log("ZIP: schreibe %s (%.2f GB)" % (m.filename, m.file_size / 1e9))
+        log(_("ZIP: schreibe %s (%.2f GB)") % (m.filename, m.file_size / 1e9))
         s = zf.open(m)
         counter = CountingReader(s)
         return counter, counter, m.file_size, m.file_size, "zip"
@@ -697,18 +778,18 @@ def open_image(path):
     if magic.startswith(b"\x1f\x8b"):
         return gzip.GzipFile(fileobj=counter), counter, csize, None, "gzip"
     if magic.startswith(b"\x28\xb5\x2f\xfd"):
-        raise WorkerError(".zst-Dateien werden nicht unterstützt. Bitte vorher entpacken.")
+        raise WorkerError(_(".zst-Dateien werden nicht unterstützt. Bitte vorher entpacken."))
     return counter, counter, csize, csize, "unkomprimiert"
 
 
 def write_raw(image, dev, force_any=False, verify=True):
     import hashlib
     if os.geteuid() != 0:
-        raise WorkerError("Root-Rechte benötigt.")
+        raise WorkerError(_("Root-Rechte benötigt."))
     image = os.path.realpath(image)
     if not os.path.isfile(image):
-        raise WorkerError("Datei nicht gefunden: %s" % image)
-    progress(0, "Prüfe Gerät", force=True)
+        raise WorkerError(_("Datei nicht gefunden: %s") % image)
+    progress(0, _("Prüfe Gerät"), force=True)
     dsys = validate_target(dev, force_any)
 
     stream, counter, ptotal, usize, kind = open_image(image)
@@ -723,14 +804,14 @@ def write_raw(image, dev, force_any=False, verify=True):
     try:
         dsize = device_size(fd)
         if usize is not None and usize > dsize:
-            raise WorkerError("Der Stick ist zu klein: Image %.2f GB, Stick %.2f GB." %
+            raise WorkerError(_("Der Stick ist zu klein: Image %.2f GB, Stick %.2f GB.") %
                               (usize / 1e9, dsize / 1e9))
         # remove old GPT backup at the end so no stale table survives
         try:
             os.pwrite(fd, b"\0" * ALIGN, dsize - ALIGN)
         except OSError:
             pass
-        log("Schreibe Image 1:1 auf %s ..." % dev)
+        log(_("Schreibe Image 1:1 auf %s ...") % dev)
         since_sync = 0
         while True:
             check_cancel()
@@ -738,7 +819,7 @@ def write_raw(image, dev, force_any=False, verify=True):
             if not buf:
                 break
             if written + len(buf) > dsize:
-                raise WorkerError("Der Stick ist zu klein für dieses Image (%.2f GB)." % (dsize / 1e9))
+                raise WorkerError(_("Der Stick ist zu klein für dieses Image (%.2f GB).") % (dsize / 1e9))
             mv = memoryview(buf)
             while mv:
                 n = os.write(fd, mv)
@@ -751,7 +832,7 @@ def write_raw(image, dev, force_any=False, verify=True):
                 since_sync = 0
             frac = (counter.count / ptotal) if ptotal else 0
             progress(1 + (w_hi - 1) * min(1.0, frac),
-                     "Schreibe Image (%.2f GB)" % (written / 1e9))
+                     _("Schreibe Image (%.2f GB)") % (written / 1e9))
         os.fsync(fd)
         try:
             fcntl.ioctl(fd, BLKFLSBUF)
@@ -763,10 +844,10 @@ def write_raw(image, dev, force_any=False, verify=True):
             stream.close()
         except Exception:
             pass
-    log("%.2f GB geschrieben." % (written / 1e9))
+    log(_("%.2f GB geschrieben.") % (written / 1e9))
 
     if verify:
-        log("Überprüfe geschriebene Daten ...")
+        log(_("Überprüfe geschriebene Daten ..."))
         # drop cached pages so we really read from the stick
         try:
             with open("/proc/sys/vm/drop_caches", "w") as f:
@@ -783,11 +864,10 @@ def write_raw(image, dev, force_any=False, verify=True):
                     break
                 sha2.update(buf)
                 left -= len(buf)
-                progress(w_hi + (99 - w_hi) * (1 - left / max(written, 1)), "Überprüfe")
+                progress(w_hi + (99 - w_hi) * (1 - left / max(written, 1)), _("Überprüfe"))
         if left != 0 or sha2.digest() != sha.digest():
-            raise WorkerError("Überprüfung fehlgeschlagen: Die Daten auf dem Stick stimmen nicht mit "
-                              "dem Image überein. Stick defekt oder gefälscht?")
-        log("Überprüfung OK (SHA-256 %s…)." % sha.hexdigest()[:16])
+            raise WorkerError(_("Überprüfung fehlgeschlagen: Die Daten auf dem Stick stimmen nicht mit dem Image überein. Stick defekt oder gefälscht?"))
+        log(_("Überprüfung OK (SHA-256 %s…).") % sha.hexdigest()[:16])
 
     # let the kernel see the new partitions
     try:
@@ -799,8 +879,8 @@ def write_raw(image, dev, force_any=False, verify=True):
     except OSError:
         pass
     os.sync()
-    progress(100, "Fertig", force=True)
-    emit("done", msg="Fertig! Das Image wurde geschrieben und der Stick kann abgezogen werden.")
+    progress(100, _("Fertig"), force=True)
+    emit("done", msg=_("Fertig! Das Image wurde geschrieben und der Stick kann abgezogen werden."))
 
 
 # --------------------------------------------------------------------------
@@ -826,12 +906,12 @@ def scan_iso(root):
 
 def make_stick(iso, dev, bypass_hw=False, local_account=False, force_any=False):
     if os.geteuid() != 0:
-        raise WorkerError("Root-Rechte benötigt.")
+        raise WorkerError(_("Root-Rechte benötigt."))
     iso = os.path.realpath(iso)
     if not os.path.isfile(iso):
-        raise WorkerError("ISO-Datei nicht gefunden: %s" % iso)
+        raise WorkerError(_("ISO-Datei nicht gefunden: %s") % iso)
 
-    progress(0, "Prüfe Gerät", force=True)
+    progress(0, _("Prüfe Gerät"), force=True)
     dsys = validate_target(dev, force_any)
     need_tool("mkfs.fat")
 
@@ -840,21 +920,20 @@ def make_stick(iso, dev, bypass_hw=False, local_account=False, force_any=False):
     usb_mnt = os.path.join(work, "usb")
     os.mkdir(iso_mnt)
     os.mkdir(usb_mnt)
-    log("Arbeitsordner: %s (nur temporär, nichts im System)" % work)
+    log(_("Arbeitsordner: %s (nur temporär, nichts im System)") % work)
 
     try:
-        progress(1, "Öffne ISO", force=True)
+        progress(1, _("Öffne ISO"), force=True)
         mount_iso(iso, iso_mnt)
         root = Path(iso_mnt)
 
         if find_ci(root, "efi", "boot", "bootx64.efi") is None:
-            log("Warnung: efi/boot/bootx64.efi fehlt – Stick bootet evtl. nicht im UEFI-Modus.")
+            log(_("Warnung: efi/boot/bootx64.efi fehlt – Stick bootet evtl. nicht im UEFI-Modus."))
         sources = find_ci(root, "sources")
         wim = find_ci(root, "sources", "install.wim")
         esd = find_ci(root, "sources", "install.esd")
         if wim is None and esd is None and find_ci(root, "sources", "install.swm") is None:
-            raise WorkerError("Das sieht nicht nach einer Windows-Installations-ISO aus "
-                              "(sources/install.wim bzw. install.esd fehlt).")
+            raise WorkerError(_("Das sieht nicht nach einer Windows-Installations-ISO aus (sources/install.wim bzw. install.esd fehlt)."))
 
         files, total = scan_iso(iso_mnt)
         split_rel = None
@@ -864,23 +943,22 @@ def make_stick(iso, dev, bypass_hw=False, local_account=False, force_any=False):
                         os.path.realpath(wim):
                     split_rel = rel
                 else:
-                    raise WorkerError("Die Datei %s ist größer als 4 GB und kann nicht auf FAT32 "
-                                      "aufgeteilt werden." % rel)
-        log("ISO: %d Dateien, %.2f GB" % (len(files), total / 1e9))
+                    raise WorkerError(_("Die Datei %s ist größer als 4 GB und kann nicht auf FAT32 aufgeteilt werden.") % rel)
+        log(_("ISO: %d Dateien, %.2f GB") % (len(files), total / 1e9))
 
-        progress(2, "Bereite Stick vor", force=True)
+        progress(2, _("Bereite Stick vor"), force=True)
         unmount_all(dsys)
         check_cancel()
 
-        log("Schreibe neue Partitionstabelle (MBR, FAT32) auf %s ..." % dev)
+        log(_("Schreibe neue Partitionstabelle (MBR, FAT32) auf %s ...") % dev)
         size, ss, start, count = write_mbr(dev)
         if total + 64 * 1024 ** 2 > count * ss:
-            raise WorkerError("Der Stick ist zu klein: %.1f GB benötigt, %.1f GB vorhanden." %
+            raise WorkerError(_("Der Stick ist zu klein: %.1f GB benötigt, %.1f GB vorhanden.") %
                               ((total + 64 * 1024 ** 2) / 1e9, count * ss / 1e9))
         part = reread_partitions(dev, dsys)
         unmount_all(dsys)       # desktop may have auto-mounted something
-        progress(3, "Formatiere FAT32", force=True)
-        log("Formatiere %s als FAT32 ..." % part)
+        progress(3, _("Formatiere FAT32"), force=True)
+        log(_("Formatiere %s als FAT32 ...") % part)
         format_fat32(part)
         unmount_all(dsys)
 
@@ -888,7 +966,7 @@ def make_stick(iso, dev, bypass_hw=False, local_account=False, force_any=False):
         check_cancel()
 
         prog = Progress(total)
-        log("Kopiere Dateien ...")
+        log(_("Kopiere Dateien ..."))
         for rel, sz in files:
             check_cancel()
             src = os.path.join(iso_mnt, rel)
@@ -896,7 +974,7 @@ def make_stick(iso, dev, bypass_hw=False, local_account=False, force_any=False):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             if rel == split_rel:
                 continue
-            copy_file(src, dst, prog, "Kopiere " + os.path.basename(rel))
+            copy_file(src, dst, prog, _("Kopiere ") + os.path.basename(rel))
         # empty directories
         for dirpath, dirnames, _ in os.walk(iso_mnt):
             for d in dirnames:
@@ -910,16 +988,16 @@ def make_stick(iso, dev, bypass_hw=False, local_account=False, force_any=False):
         if bypass_hw or local_account:
             write_autounattend(usb_mnt, bypass_hw, local_account)
 
-        progress(97.5, "Schreibe Puffer auf den Stick", force=True)
-        log("Schreibe restliche Daten auf den Stick (sync) ...")
+        progress(97.5, _("Schreibe Puffer auf den Stick"), force=True)
+        log(_("Schreibe restliche Daten auf den Stick (sync) ..."))
         os.sync()
-        progress(99, "Hänge aus", force=True)
+        progress(99, _("Hänge aus"), force=True)
         if not umount(usb_mnt, lazy_ok=False):
             os.sync()
             umount(usb_mnt)
         os.sync()
-        progress(100, "Fertig", force=True)
-        emit("done", msg="Fertig! Der Stick ist bereit und kann abgezogen werden.")
+        progress(100, _("Fertig"), force=True)
+        emit("done", msg=_("Fertig! Der Stick ist bereit und kann abgezogen werden."))
     finally:
         for m in (usb_mnt, iso_mnt):
             if is_mounted(m):
@@ -952,7 +1030,11 @@ def main():
                     help="Windows 11: Einrichtung ohne Microsoft-Konto erlauben")
     ap.add_argument("--yes", action="store_true", help="nicht nachfragen (CLI)")
     ap.add_argument("--force-any-device", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--lang", choices=("de", "en"), help="Sprache / language")
     args = ap.parse_args()
+    global LANG
+    if args.lang:
+        LANG = args.lang
     mode = args.mode if args.mode != "auto" else detect_mode(args.iso)
     if args.detect:
         print(mode)
@@ -966,9 +1048,9 @@ def main():
     else:
         signal.signal(signal.SIGINT, lambda *a: CANCEL.set())
         if not args.yes:
-            print("ACHTUNG: Alle Daten auf %s werden gelöscht!" % args.device)
-            if input("Zum Fortfahren 'ja' eingeben: ").strip().lower() != "ja":
-                print("Abgebrochen.")
+            print(_("ACHTUNG: Alle Daten auf %s werden gelöscht!") % args.device)
+            if input(_("Zum Fortfahren 'ja' eingeben: ")).strip().lower() not in ("ja", "yes", "y", "j"):
+                print(_("Abgebrochen."))
                 return 1
 
     try:
@@ -981,14 +1063,14 @@ def main():
             print()
         return 0
     except Cancelled:
-        emit("error", msg="Abgebrochen. Der Stick ist unvollständig und muss neu erstellt werden.")
+        emit("error", msg=_("Abgebrochen. Der Stick ist unvollständig und muss neu erstellt werden."))
         return 2
     except WorkerError as e:
         emit("error", msg=str(e))
         return 1
     except Exception as e:  # pragma: no cover
         import traceback
-        emit("error", msg="Unerwarteter Fehler: %s\n%s" % (e, traceback.format_exc()[-1500:]))
+        emit("error", msg=_("Unerwarteter Fehler: %s\n%s") % (e, traceback.format_exc()[-1500:]))
         return 1
 
 

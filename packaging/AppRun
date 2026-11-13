@@ -16,19 +16,21 @@ case "$1" in
         exec "$PY" -s -E "$APP/winusb_worker.py" "$@"
         ;;
     --version)
-        echo "WinUSB-SteamOS 1.0.0"
+        "$PY" -s -E -c 'import json,sys; d=json.load(open(sys.argv[1])); print("WinUSB-SteamOS %s (build %s %s)" % (d.get("version"), d.get("date"), d.get("commit")))' "$APP/build_info.json" 2>/dev/null \
+            || echo "WinUSB-SteamOS dev"
         exit 0
         ;;
     -h|--help)
         cat <<EOF
-WinUSB-SteamOS – bootfähigen Windows-USB-Stick aus einer ISO erstellen
+WinUSB-SteamOS – create bootable USB sticks (Windows ISO, SteamOS recovery image, Linux ISO)
 
-  $(basename "${APPIMAGE:-WinUSB-SteamOS.AppImage}")                 grafische Oberfläche
-  $(basename "${APPIMAGE:-WinUSB-SteamOS.AppImage}") <datei.iso>     GUI mit vorausgewählter ISO
+  $(basename "${APPIMAGE:-WinUSB-SteamOS.AppImage}")                 GUI
+  $(basename "${APPIMAGE:-WinUSB-SteamOS.AppImage}") <file>          GUI with the file preselected
 
-Text-Modus (als root):
+Text mode (as root):
   sudo ./WinUSB-SteamOS-x86_64.AppImage --cli --iso Win11.iso --device /dev/sdX \\
-       [--win11-bypass] [--local-account] [--yes]
+       [--win11-bypass] [--local-account] [--yes] [--lang en|de]
+  sudo ./WinUSB-SteamOS-x86_64.AppImage --cli --image steamdeck-repair.img.bz2 --device /dev/sdX
 EOF
         exit 0
         ;;
