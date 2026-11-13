@@ -194,7 +194,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 from PySide6.QtCore import QTimer
 a=QApplication([]); l=QLabel('hi'); l.show(); QTimer.singleShot(500,a.quit); a.exec(); print('MINIMAL_OK')" 2>&1 | tail -15
     echo '>> with Arch xcb-util libs instead of bundled:'
-    pacman -S --noconfirm --needed xcb-util xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm libsm libice 2>&1 | tail -1
+    pacman -S --noconfirm --needed xcb-util xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm libsm libice libxkbcommon-x11 2>&1 | tail -1
     DISPLAY=:99 QT_QPA_PLATFORM=xcb "$PY" -X faulthandler -s -E squashfs-root/usr/share/winusb/winusb_gui.py --selftest 2>&1 | tail -15
     echo '>> gdb:'
     pacman -S --noconfirm --needed gdb 2>&1 | tail -1

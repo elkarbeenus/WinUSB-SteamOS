@@ -65,7 +65,7 @@ fi
 log "Bundling xcb-util libraries for the Qt xcb plugin"
 mkdir -p "$APPDIR/usr/lib/gui"
 for lib in libxcb-cursor.so.0 libxcb-icccm.so.4 libxcb-keysyms.so.1 libxcb-image.so.0 \
-           libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0 \
+           libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0 libxkbcommon.so.0 \
            libSM.so.6 libICE.so.6 libxcb-xinerama.so.0 libxcb-xinput.so.0; do
     src="$(ldconfig -p | awk -v l="$lib" '$1==l && /x86-64/ {print $NF; exit}')"
     if [ -n "$src" ]; then

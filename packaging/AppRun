@@ -43,6 +43,6 @@ if [ -z "$QT_QPA_PLATFORM" ]; then
         export QT_QPA_PLATFORM="wayland;xcb"
     fi
 fi
-# xcb helper libs that are not always installed (fallback only: host libs win)
+# xcb helper libs (+ matching libxkbcommon pair, must be the same version)
 export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$HERE/usr/lib/gui"
 exec "$PY" -s -E "$APP/winusb_gui.py" "$@"
