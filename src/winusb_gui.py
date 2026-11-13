@@ -27,6 +27,8 @@ APP_NAME = "WinUSB-SteamOS"
 VERSION = "1.0.0"
 HERE = Path(__file__).resolve().parent
 WORKER = HERE / "winusb_worker.py"
+sys.path.insert(0, str(HERE))
+from winusb_worker import detect_mode  # noqa: E402
 
 
 def human(n):
@@ -102,7 +104,7 @@ def list_usb_devices():
 class MainWindow(QMainWindow):
     def __init__(self, iso=None):
         super().__init__()
-        self.setWindowTitle("%s – Windows-USB-Stick erstellen" % APP_NAME)
+        self.setWindowTitle("%s – bootfähigen USB-Stick erstellen" % APP_NAME)
         self.proc = None
         self.devices = []
         self.finished_ok = False
@@ -115,22 +117,37 @@ class MainWindow(QMainWindow):
         lay.setSpacing(12)
         lay.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("<b style='font-size:15pt'>Windows-USB-Stick erstellen</b><br>"
-                       "<span style='color:gray'>Aus einer Windows-10/11-ISO einen bootfähigen "
-                       "Installations-Stick machen – direkt unter SteamOS.</span>")
+        title = QLabel("<b style='font-size:15pt'>Bootfähigen USB-Stick erstellen</b><br>"
+                       "<span style='color:gray'>Windows 10/11-ISO, SteamOS-Recovery-Image oder "
+                       "Linux-ISO – direkt unter SteamOS.</span>")
         title.setTextFormat(Qt.RichText)
         lay.addWidget(title)
 
         # --- ISO ---
-        g1 = QGroupBox("1. Windows-ISO")
-        h1 = QHBoxLayout(g1)
+        g1 = QGroupBox("1. ISO / Image")
+        v1 = QVBoxLayout(g1)
+        h1 = QHBoxLayout()
+        v1.addLayout(h1)
         self.iso_edit = QLineEdit()
-        self.iso_edit.setPlaceholderText("ISO-Datei auswählen oder hierher ziehen …")
+        self.iso_edit.setPlaceholderText("Datei auswählen oder hierher ziehen (.iso, .img, .img.bz2, .zip …)")
         self.iso_edit.setReadOnly(True)
         self.iso_btn = QPushButton("Auswählen …")
         self.iso_btn.clicked.connect(self.choose_iso)
         h1.addWidget(self.iso_edit, 1)
         h1.addWidget(self.iso_btn)
+        hm = QHBoxLayout()
+        hm.addWidget(QLabel("Modus:"))
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("Automatisch erkennen", "auto")
+        self.mode_combo.addItem("Windows-Installer (ISO → FAT32, wie Rufus)", "windows")
+        self.mode_combo.addItem("Image 1:1 schreiben (SteamOS, Linux – wie Etcher/dd)", "raw")
+        self.mode_combo.currentIndexChanged.connect(self.update_mode)
+        hm.addWidget(self.mode_combo, 1)
+        v1.addLayout(hm)
+        self.mode_hint = QLabel()
+        self.mode_hint.setStyleSheet("color: gray")
+        self.mode_hint.setWordWrap(True)
+        v1.addWidget(self.mode_hint)
         lay.addWidget(g1)
 
         # --- device ---
@@ -150,14 +167,18 @@ class MainWindow(QMainWindow):
         lay.addWidget(g2)
 
         # --- options ---
-        g3 = QGroupBox("3. Optionen (Windows 11)")
+        g3 = QGroupBox("3. Optionen")
         v3 = QVBoxLayout(g3)
+        self.g3 = g3
         self.opt_bypass = QCheckBox("TPM-, Secure-Boot-, RAM- und CPU-Prüfung umgehen "
                                     "(für ältere PCs)")
         self.opt_local = QCheckBox("Einrichtung ohne Microsoft-Konto erlauben (lokales Konto)")
         v3.addWidget(self.opt_bypass)
         v3.addWidget(self.opt_local)
-        note = QLabel("Der Stick bootet im UEFI-Modus (alle PCs ab ca. 2012 und das Steam Deck).")
+        self.opt_verify = QCheckBox("Nach dem Schreiben überprüfen (empfohlen)")
+        self.opt_verify.setChecked(True)
+        v3.addWidget(self.opt_verify)
+        note = QLabel("Windows-Sticks booten im UEFI-Modus (alle PCs ab ca. 2012 und das Steam Deck).")
         note.setStyleSheet("color: gray")
         note.setWordWrap(True)
         v3.addWidget(note)
@@ -214,6 +235,7 @@ class MainWindow(QMainWindow):
         self.refresh_devices(force=True)
         if iso:
             self.set_iso(iso)
+        self.update_mode()
         self.update_buttons()
 
     # ---------------------------------------------------------------- ui
@@ -231,15 +253,17 @@ class MainWindow(QMainWindow):
     def dropEvent(self, e):
         for url in e.mimeData().urls():
             p = url.toLocalFile()
-            if p.lower().endswith(".iso"):
+            if os.path.isfile(p):
                 self.set_iso(p)
                 break
 
     def choose_iso(self):
         start = os.path.dirname(self.iso_edit.text()) if self.iso_edit.text() else \
             str(Path.home() / "Downloads") if (Path.home() / "Downloads").is_dir() else str(Path.home())
-        path, _ = QFileDialog.getOpenFileName(self, "Windows-ISO auswählen", start,
-                                              "ISO-Abbilder (*.iso *.ISO);;Alle Dateien (*)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "ISO oder Image auswählen", start,
+            "ISO und Images (*.iso *.ISO *.img *.IMG *.raw *.bz2 *.xz *.gz *.zip);;"
+            "Windows-ISO (*.iso *.ISO);;Alle Dateien (*)")
         if path:
             self.set_iso(path)
 
@@ -249,7 +273,31 @@ class MainWindow(QMainWindow):
             return
         self.iso_edit.setText(path)
         self.iso_edit.setToolTip("%s (%s)" % (path, human(os.path.getsize(path))))
+        self.update_mode()
         self.update_buttons()
+
+    def effective_mode(self):
+        m = self.mode_combo.currentData()
+        if m != "auto":
+            return m
+        p = self.iso_edit.text()
+        return detect_mode(p) if p else "windows"
+
+    def update_mode(self, *_):
+        p = self.iso_edit.text()
+        mode = self.effective_mode()
+        win = mode == "windows"
+        self.opt_bypass.setVisible(win)
+        self.opt_local.setVisible(win)
+        self.opt_verify.setVisible(not win)
+        if not p:
+            self.mode_hint.setText("")
+        elif win:
+            self.mode_hint.setText("→ Windows-Installations-Stick: FAT32, große install.wim wird "
+                                   "automatisch aufgeteilt.")
+        else:
+            self.mode_hint.setText("→ Wird 1:1 auf den Stick geschrieben (z.B. SteamOS-Recovery-Image, "
+                                   "Ubuntu, Bazzite). Komprimierte Dateien werden direkt entpackt.")
 
     def refresh_devices(self, force=False):
         if self.proc is not None:
@@ -278,7 +326,8 @@ class MainWindow(QMainWindow):
         busy = self.proc is not None
         self.start_btn.setEnabled(not busy and bool(self.iso_edit.text()) and
                                   self.dev_combo.count() > 0)
-        for w in (self.iso_btn, self.dev_combo, self.refresh_btn, self.opt_bypass, self.opt_local):
+        for w in (self.iso_btn, self.dev_combo, self.refresh_btn, self.opt_bypass, self.opt_local,
+                  self.opt_verify, self.mode_combo):
             w.setEnabled(not busy)
         self.cancel_btn.setEnabled(busy)
 
@@ -293,11 +342,15 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ run
     def build_command(self, iso, dev):
-        args = ["--worker", "--iso", iso, "--device", dev]
-        if self.opt_bypass.isChecked():
-            args.append("--win11-bypass")
-        if self.opt_local.isChecked():
-            args.append("--local-account")
+        mode = self.effective_mode()
+        args = ["--worker", "--iso", iso, "--device", dev, "--mode", mode]
+        if mode == "windows":
+            if self.opt_bypass.isChecked():
+                args.append("--win11-bypass")
+            if self.opt_local.isChecked():
+                args.append("--local-account")
+        elif not self.opt_verify.isChecked():
+            args.append("--no-verify")
 
         appimage = os.environ.get("APPIMAGE")
         if os.geteuid() == 0:
@@ -320,7 +373,9 @@ class MainWindow(QMainWindow):
             return
         dinfo = next((d for d in self.devices if d["path"] == dev), None)
         iso_size = os.path.getsize(iso)
-        if dinfo and dinfo["size"] < iso_size + 100 * 1000 ** 2:
+        compressed = iso.lower().endswith((".bz2", ".xz", ".gz", ".zip"))
+        if dinfo and not compressed and dinfo["size"] < iso_size + (100 * 1000 ** 2 if
+                                                                  self.effective_mode() == "windows" else 0):
             QMessageBox.warning(self, APP_NAME,
                                 "Der Stick ist zu klein.\nISO: %s\nStick: %s" %
                                 (human(iso_size), human(dinfo["size"])))
@@ -412,7 +467,7 @@ class MainWindow(QMainWindow):
             self.status.setText("Fertig!")
             QMessageBox.information(
                 self, "Fertig",
-                "<b>Der Windows-Stick ist fertig!</b><br><br>Du kannst ihn jetzt abziehen.<br><br>"
+                "<b>Der Stick ist fertig!</b><br><br>Du kannst ihn jetzt abziehen.<br><br>"
                 "Booten: Beim Start des Ziel-PCs das Boot-Menü öffnen (meist F12, F11, F8 oder "
                 "Esc).<br>Steam Deck: <i>Lautstärke runter</i> gedrückt halten und "
                 "<i>Power</i> drücken.")
@@ -489,7 +544,7 @@ def main():
             app.installTranslator(tr)
     except Exception:
         pass
-    iso = next((a for a in argv[1:] if a.lower().endswith(".iso")), None)
+    iso = next((a for a in argv[1:] if not a.startswith("-") and os.path.isfile(a)), None)
     w = MainWindow(iso)
     w.show()
     if selftest:

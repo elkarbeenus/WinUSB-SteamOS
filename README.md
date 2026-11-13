@@ -1,6 +1,9 @@
 # WinUSB-SteamOS
 
-Bootfähigen **Windows-10/11-Installations-Stick aus einer ISO** erstellen, direkt unter **SteamOS** (Desktop-Modus), auf dem Steam Deck und unter anderen Linux-Systemen.
+Bootfähige USB-Sticks erstellen, direkt unter **SteamOS** (Desktop-Modus), auf dem Steam Deck und unter anderen Linux-Systemen:
+
+- **Windows 10/11** aus der offiziellen ISO (wie Rufus/WoeUSB)
+- **SteamOS-Recovery-Image** von Valve (`steamdeck-repair-….img.bz2` / `.zip`) und **Linux-ISOs** (Ubuntu, Bazzite, Fedora …), 1:1 geschrieben und überprüft wie mit Etcher
 Ein einziges AppImage: nichts installieren, kein `steamos-readonly disable`, kein pacman.
 
 ![build](https://github.com/elkarbeenus/WinUSB-SteamOS/actions/workflows/build.yml/badge.svg)
@@ -23,7 +26,8 @@ WinUSB-SteamOS hängt **nur in einem temporären Ordner unter `/tmp`** ein und s
 
 1. Bei [**Releases**](https://github.com/elkarbeenus/WinUSB-SteamOS/releases/latest) die Datei `WinUSB-SteamOS-x86_64.AppImage` herunterladen.
 2. Rechtsklick → *Eigenschaften* → *Berechtigungen* → **Ausführbar** anhaken.
-3. Doppelklick → ISO wählen (oder aufs Fenster ziehen) → USB-Stick wählen → **Stick erstellen**.
+3. Doppelklick → ISO/Image wählen (oder aufs Fenster ziehen) → USB-Stick wählen → **Stick erstellen**.
+   Der Modus wird automatisch erkannt: Windows-ISO → Windows-Installer, alles andere → 1:1.
 4. Passwort eingeben (die Abfrage kommt vom System, nötig für den Zugriff auf den Stick).
 
 > **Steam Deck:** Der Benutzer `deck` hat ab Werk **kein Passwort**. Einmal in der Konsole `passwd` eingeben und eins festlegen, sonst kann die Passwortabfrage nicht bestätigt werden.
@@ -31,14 +35,21 @@ WinUSB-SteamOS hängt **nur in einem temporären Ordner unter `/tmp`** ein und s
 **Booten:** Am Ziel-PC das Boot-Menü öffnen (meist F12 / F11 / F8 / Esc).
 Steam Deck: **Lautstärke runter** gedrückt halten und **Power** drücken.
 
+### SteamOS-Stick (Recovery/Installation)
+
+Recovery-Image bei Valve herunterladen (*help.steampowered.com → Steam Deck Recovery Image*), die `.bz2`- oder `.zip`-Datei direkt auswählen. Entpacken ist nicht nötig. Dann **Stick erstellen**. Danach wird automatisch geprüft, ob alles korrekt auf dem Stick gelandet ist.
+
 ### Text-Modus (Terminal)
 
 ```bash
 sudo ./WinUSB-SteamOS-x86_64.AppImage --cli --iso ~/Downloads/Win11.iso --device /dev/sdX \
      [--win11-bypass] [--local-account]
+
+# Image 1:1 (z.B. SteamOS-Recovery)
+sudo ./WinUSB-SteamOS-x86_64.AppImage --cli --image steamdeck-repair.img.bz2 --device /dev/sdX
 ```
 
-## Wie es funktioniert
+## Wie es funktioniert (Windows-Modus)
 
 Angelehnt an Rufus (FAT32-Modus) und WoeUSB-ng:
 
@@ -50,6 +61,10 @@ Angelehnt an Rufus (FAT32-Modus) und WoeUSB-ng:
 6. Optional: `autounattend.xml` mit den Rufus-Tweaks (LabConfig-Bypass, BypassNRO).
 
 Der Stick bootet per **UEFI**: alle PCs ab ca. 2012 und das Steam Deck. Windows 11 setzt UEFI sowieso voraus.
+
+### Image-Modus
+
+Die Datei wird direkt entpackt (bzip2, xz, gzip, zip) und blockweise auf den Stick geschrieben. Dabei wird eine SHA-256-Prüfsumme berechnet. Danach wird der Stick zurückgelesen und verglichen (abschaltbar). Hybrid-ISOs (mit MBR, z.B. Ubuntu) werden automatisch erkannt.
 
 ### Rechte und AppImage
 
@@ -77,6 +92,7 @@ Jeder Push baut das AppImage und testet es (siehe `tests/ci_test.sh`):
 - 8-GB-„Stick“ (Loop-Device) mit altem GPT + ext4 darauf
 - Ausführung in einem **Arch-Linux-Container** (Basis von SteamOS), **ohne FUSE**, genau wie über pkexec
 - Prüfung: Partitionstabelle, `fsck.fat`, Prüfsummen, `wimlib-imagex verify` der Teile, autounattend.xml
+- Image-Modus mit `.img.bz2` und `.zip` (wie das SteamOS-Recovery-Image): Byte-für-Byte-Vergleich, GPT sichtbar
 - Sicherheitsprüfungen (Partition statt Gerät, internes Laufwerk, Abbruch)
 - GUI-Start auf einem virtuellen X-Server unter Arch
 

@@ -613,6 +613,197 @@ def write_autounattend(usb_root, bypass_hw, local_account):
 
 
 # --------------------------------------------------------------------------
+# raw image mode (SteamOS recovery image, Linux ISOs, ...) – like Etcher / dd
+# --------------------------------------------------------------------------
+
+RAW_EXTS = (".img", ".raw", ".bin", ".img.bz2", ".img.xz", ".img.gz", ".bz2", ".xz", ".gz",
+            ".zip", ".iso.bz2", ".iso.xz", ".iso.gz")
+
+
+def detect_mode(path):
+    """'windows' for Windows install ISOs, 'raw' for everything that must be written 1:1."""
+    low = path.lower()
+    if not low.endswith(".iso"):
+        return "raw"
+    try:
+        with open(path, "rb") as f:
+            head = f.read(512)
+            f.seek(0x8000)
+            vd = f.read(2048 * 16)
+    except OSError:
+        return "windows"
+    # hybrid ISO (Ubuntu, Fedora, Bazzite, ...) carries an MBR -> write 1:1
+    if len(head) == 512 and head[510:512] == b"\x55\xaa" and any(head[446:510]):
+        return "raw"
+    if b"BEA01" in vd or b"NSR0" in vd or b"CCCOMA" in vd or b"CPBA" in vd:
+        return "windows"
+    return "windows"
+
+
+class CountingReader:
+    """counts compressed bytes read for progress of streamed decompression"""
+    def __init__(self, f):
+        self.f = f
+        self.count = 0
+
+    def read(self, n=-1):
+        b = self.f.read(n)
+        self.count += len(b)
+        return b
+
+    def readinto(self, b):
+        n = self.f.readinto(b)
+        self.count += n or 0
+        return n
+
+    def readable(self):
+        return True
+
+    def close(self):
+        self.f.close()
+
+    @property
+    def closed(self):
+        return self.f.closed
+
+
+def open_image(path):
+    """returns (stream, counter, total_for_progress, uncompressed_size_or_None, description)"""
+    import bz2
+    import gzip
+    import lzma
+    import zipfile
+    raw = open(path, "rb")
+    magic = raw.read(6)
+    raw.seek(0)
+    csize = os.path.getsize(path)
+    if magic.startswith(b"PK\x03\x04"):
+        raw.close()
+        zf = zipfile.ZipFile(path)
+        members = [m for m in zf.infolist() if not m.is_dir()]
+        if not members:
+            raise WorkerError("Die ZIP-Datei ist leer.")
+        pref = [m for m in members if m.filename.lower().endswith((".img", ".iso", ".raw"))]
+        m = max(pref or members, key=lambda x: x.file_size)
+        log("ZIP: schreibe %s (%.2f GB)" % (m.filename, m.file_size / 1e9))
+        s = zf.open(m)
+        counter = CountingReader(s)
+        return counter, counter, m.file_size, m.file_size, "zip"
+    counter = CountingReader(raw)
+    if magic.startswith(b"BZh"):
+        return bz2.BZ2File(counter), counter, csize, None, "bzip2"
+    if magic.startswith(b"\xfd7zXZ"):
+        return lzma.LZMAFile(counter), counter, csize, None, "xz"
+    if magic.startswith(b"\x1f\x8b"):
+        return gzip.GzipFile(fileobj=counter), counter, csize, None, "gzip"
+    if magic.startswith(b"\x28\xb5\x2f\xfd"):
+        raise WorkerError(".zst-Dateien werden nicht unterstützt. Bitte vorher entpacken.")
+    return counter, counter, csize, csize, "unkomprimiert"
+
+
+def write_raw(image, dev, force_any=False, verify=True):
+    import hashlib
+    if os.geteuid() != 0:
+        raise WorkerError("Root-Rechte benötigt.")
+    image = os.path.realpath(image)
+    if not os.path.isfile(image):
+        raise WorkerError("Datei nicht gefunden: %s" % image)
+    progress(0, "Prüfe Gerät", force=True)
+    dsys = validate_target(dev, force_any)
+
+    stream, counter, ptotal, usize, kind = open_image(image)
+    log("Image (%s): %s" % (kind, os.path.basename(image)))
+    unmount_all(dsys)
+    check_cancel()
+
+    w_hi = 70.0 if verify else 99.0
+    sha = hashlib.sha256()
+    written = 0
+    fd = os.open(dev, os.O_WRONLY | os.O_EXCL)
+    try:
+        dsize = device_size(fd)
+        if usize is not None and usize > dsize:
+            raise WorkerError("Der Stick ist zu klein: Image %.2f GB, Stick %.2f GB." %
+                              (usize / 1e9, dsize / 1e9))
+        # remove old GPT backup at the end so no stale table survives
+        try:
+            os.pwrite(fd, b"\0" * ALIGN, dsize - ALIGN)
+        except OSError:
+            pass
+        log("Schreibe Image 1:1 auf %s ..." % dev)
+        since_sync = 0
+        while True:
+            check_cancel()
+            buf = stream.read(COPY_CHUNK)
+            if not buf:
+                break
+            if written + len(buf) > dsize:
+                raise WorkerError("Der Stick ist zu klein für dieses Image (%.2f GB)." % (dsize / 1e9))
+            mv = memoryview(buf)
+            while mv:
+                n = os.write(fd, mv)
+                mv = mv[n:]
+            sha.update(buf)
+            written += len(buf)
+            since_sync += len(buf)
+            if since_sync >= SYNC_EVERY:
+                os.fdatasync(fd)
+                since_sync = 0
+            frac = (counter.count / ptotal) if ptotal else 0
+            progress(1 + (w_hi - 1) * min(1.0, frac),
+                     "Schreibe Image (%.2f GB)" % (written / 1e9))
+        os.fsync(fd)
+        try:
+            fcntl.ioctl(fd, BLKFLSBUF)
+        except OSError:
+            pass
+    finally:
+        os.close(fd)
+        try:
+            stream.close()
+        except Exception:
+            pass
+    log("%.2f GB geschrieben." % (written / 1e9))
+
+    if verify:
+        log("Überprüfe geschriebene Daten ...")
+        # drop cached pages so we really read from the stick
+        try:
+            with open("/proc/sys/vm/drop_caches", "w") as f:
+                f.write("1\n")
+        except OSError:
+            pass
+        sha2 = hashlib.sha256()
+        left = written
+        with open(dev, "rb", buffering=0) as f:
+            while left > 0:
+                check_cancel()
+                buf = f.read(min(COPY_CHUNK, left))
+                if not buf:
+                    break
+                sha2.update(buf)
+                left -= len(buf)
+                progress(w_hi + (99 - w_hi) * (1 - left / max(written, 1)), "Überprüfe")
+        if left != 0 or sha2.digest() != sha.digest():
+            raise WorkerError("Überprüfung fehlgeschlagen: Die Daten auf dem Stick stimmen nicht mit "
+                              "dem Image überein. Stick defekt oder gefälscht?")
+        log("Überprüfung OK (SHA-256 %s…)." % sha.hexdigest()[:16])
+
+    # let the kernel see the new partitions
+    try:
+        fd = os.open(dev, os.O_RDONLY)
+        try:
+            fcntl.ioctl(fd, BLKRRPART)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+    os.sync()
+    progress(100, "Fertig", force=True)
+    emit("done", msg="Fertig! Das Image wurde geschrieben und der Stick kann abgezogen werden.")
+
+
+# --------------------------------------------------------------------------
 # main job
 # --------------------------------------------------------------------------
 
@@ -744,10 +935,16 @@ def main():
     global JSON_MODE
     ap = argparse.ArgumentParser(
         prog="WinUSB-SteamOS",
-        description="Bootfähigen Windows-USB-Stick aus einer ISO erstellen (läuft als root).")
+        description="Bootfähigen USB-Stick erstellen: Windows-ISO oder Image 1:1 (SteamOS-Recovery, "
+                    "Linux-ISOs). Läuft als root.")
     ap.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--cli", action="store_true", help="Text-Modus (ohne GUI)")
-    ap.add_argument("--iso", required=True, help="Pfad zur Windows-ISO")
+    ap.add_argument("--iso", "--image", dest="iso", required=True,
+                    help="Windows-ISO oder Image (.img, .img.bz2, .zip, .xz, .gz, Linux-ISO)")
+    ap.add_argument("--mode", choices=("auto", "windows", "raw"), default="auto",
+                    help="windows = Windows-Installer, raw = 1:1 schreiben (dd), auto = erkennen")
+    ap.add_argument("--no-verify", action="store_true", help="Image-Modus: nicht überprüfen")
+    ap.add_argument("--detect", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--device", required=True, help="Ziel-Gerät, z.B. /dev/sdc (wird GELÖSCHT)")
     ap.add_argument("--win11-bypass", action="store_true",
                     help="Windows 11: TPM-/Secure-Boot-/RAM-/CPU-Prüfung umgehen")
@@ -756,6 +953,10 @@ def main():
     ap.add_argument("--yes", action="store_true", help="nicht nachfragen (CLI)")
     ap.add_argument("--force-any-device", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
+    mode = args.mode if args.mode != "auto" else detect_mode(args.iso)
+    if args.detect:
+        print(mode)
+        return 0
 
     JSON_MODE = args.worker
     signal.signal(signal.SIGTERM, lambda *a: CANCEL.set())
@@ -771,8 +972,11 @@ def main():
                 return 1
 
     try:
-        make_stick(args.iso, args.device, args.win11_bypass, args.local_account,
-                   args.force_any_device)
+        if mode == "raw":
+            write_raw(args.iso, args.device, args.force_any_device, verify=not args.no_verify)
+        else:
+            make_stick(args.iso, args.device, args.win11_bypass, args.local_account,
+                       args.force_any_device)
         if not JSON_MODE:
             print()
         return 0

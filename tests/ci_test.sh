@@ -18,7 +18,7 @@ fail() { printf '\n\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 step "Host tools"
 apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq udftools wimtools dosfstools fdisk >/dev/null
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq udftools wimtools dosfstools fdisk bzip2 zip >/dev/null
 modprobe loop || true
 modprobe udf || true
 modprobe vfat || true
@@ -121,11 +121,53 @@ docker run --rm --privileged -v /dev:/dev -v "$WORK:$WORK" -v "$APPIMAGE:/app/Wi
         echo \"\$out\" | grep -q 'Abgebrochen' || exit 1
     " || fail "safety checks"
 
+step "Image mode (SteamOS recovery style .img.bz2 / .zip, Linux hybrid ISO detection)"
+# 600 MB disk image with GPT + 2 partitions, like steamdeck-repair-*.img
+truncate -s 600M steamos.img
+echo 'label: gpt
+,64M,U
+,,L' | sfdisk -q steamos.img
+head -c 50000000 /dev/urandom | dd of=steamos.img bs=1M seek=100 conv=notrunc status=none
+bzip2 -k -1 steamos.img
+( zip -q -1 steamos.zip steamos.img ) 2>/dev/null || python3 -c "
+import zipfile; z=zipfile.ZipFile('steamos.zip','w',zipfile.ZIP_DEFLATED); z.write('steamos.img'); z.close()"
+IMGSIZE=$(stat -c %s steamos.img)
+for img in steamos.img.bz2 steamos.zip; do
+    echo ">> writing $img"
+    docker run --rm --privileged -v /dev:/dev -v "$WORK:$WORK" -v "$APPIMAGE:/app/WinUSB.AppImage:ro" \
+        archlinux:latest bash -euc "
+            cd /tmp
+            [ \"\$(APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --cli --iso '$WORK/$img' --device '$LOOP' --detect)\" = raw ]
+            APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --cli --iso '$WORK/$img' --device '$LOOP' --yes --force-any-device
+        " || fail "image mode $img"
+    cmp -n "$IMGSIZE" steamos.img "$LOOP" || fail "image content differs ($img)"
+    partx -u "$LOOP" 2>/dev/null || true; sleep 1
+    sfdisk -d "$LOOP" | grep -q 'label: gpt' || fail "GPT not visible after writing $img"
+    echo "   OK: identical, GPT visible"
+done
+# hybrid ISO is detected as raw, Windows (UDF) ISO as windows
+cp steamos.img hybrid.iso
+printf '\x80' | dd of=hybrid.iso bs=1 seek=446 conv=notrunc status=none
+docker run --rm -v "$WORK:$WORK" -v "$APPIMAGE:/app/WinUSB.AppImage:ro" archlinux:latest bash -euc "
+    cd /tmp
+    a=\$(APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --cli --iso '$WORK/hybrid.iso' --device x --detect)
+    b=\$(APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --cli --iso '$WORK/test.iso' --device x --detect)
+    echo \"hybrid.iso -> \$a, test.iso -> \$b\"
+    [ \"\$a\" = raw ] && [ \"\$b\" = windows ]
+" || fail "mode detection"
+
 step "GUI on a virtual X server inside Arch Linux"
 docker run --rm -v "$APPIMAGE:/app/WinUSB.AppImage:ro" archlinux:latest bash -euc "
     pacman -Sy --noconfirm --needed xorg-server-xvfb xorg-xauth fontconfig ttf-dejavu mesa libglvnd \
         libxkbcommon libx11 libxcb dbus glib2 >/dev/null 2>&1
     cd /tmp
+    /app/WinUSB.AppImage --appimage-extract >/dev/null
+    echo 'missing libraries of the Qt xcb plugin (should be none):'
+    for f in squashfs-root/opt/python/lib/python3*/site-packages/PySide6/Qt/plugins/platforms/libqxcb.so \
+             squashfs-root/opt/python/lib/python3*/site-packages/PySide6/Qt/lib/libQt6XcbQpa.so.6; do
+        ldd \$f | grep 'not found' || true
+    done
+    rm -rf squashfs-root
     export APPIMAGE_EXTRACT_AND_RUN=1
     QT_QPA_PLATFORM=offscreen /app/WinUSB.AppImage --selftest
     QT_QPA_PLATFORM=xcb xvfb-run -a /app/WinUSB.AppImage --selftest 2>&1 | tee /tmp/gui.log
