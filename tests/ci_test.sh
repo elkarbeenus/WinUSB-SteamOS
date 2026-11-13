@@ -71,7 +71,7 @@ docker run --rm --privileged -v /dev:/dev -v "$WORK:$WORK" -v "$APPIMAGE:/app/Wi
         ldd --version | head -1
         cd /tmp
         APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --cli --iso '$WORK/test.iso' --device '$LOOP' \
-            --yes --force-any-device --win11-bypass --local-account
+            --yes --force-any-device --win11-bypass --local-account --user Dominic --skip-privacy --no-bitlocker
     "
 
 step "Verify result"
@@ -101,6 +101,21 @@ wimlib-imagex info check/sources/install.swm | grep -q "Windows 11 Pro" \
     || fail "image name lost"
 grep -q BypassTPMCheck check/autounattend.xml || fail "autounattend bypass missing"
 grep -q BypassNRO check/autounattend.xml || fail "autounattend NRO missing"
+python3 - check/autounattend.xml <<'EOP' || fail "autounattend.xml invalid"
+import sys, xml.etree.ElementTree as ET
+ns = {"u": "urn:schemas-microsoft-com:unattend"}
+root = ET.parse(sys.argv[1]).getroot()
+passes = [s.get("pass") for s in root.findall("u:settings", ns)]
+print("passes:", passes)
+assert passes[0] == "windowsPE", "windowsPE must come first"
+assert root.find(".//u:UserData/u:ProductKey/u:Key", ns) is not None, "empty ProductKey/Key missing"
+name = root.find(".//u:LocalAccount/u:Name", ns).text
+assert name == "Dominic", name
+assert root.find(".//u:OOBE/u:HideOnlineAccountScreens", ns).text == "true"
+assert root.find(".//u:OOBE/u:ProtectYourPC", ns).text == "3"
+assert root.find(".//u:PreventDeviceEncryption", ns).text == "true"
+print("autounattend.xml OK (ProductKey, local account, privacy, BitLocker)")
+EOP
 umount check
 
 step "Worker JSON mode + safety checks (Arch container)"

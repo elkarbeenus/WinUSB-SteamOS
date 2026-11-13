@@ -66,6 +66,11 @@ def _detect_lang():
 LANG = _detect_lang()
 
 EN = {
+    'Ungültiger Benutzername für das lokale Konto.': 'Invalid user name for the local account.',
+    "Der Benutzername '%s' ist in Windows reserviert. Bitte einen anderen wählen.": "The user name '%s' is reserved in Windows. Please choose another one.",
+    "lokales Konto '%s' (Passwort beim ersten Anmelden festlegen)": "local account '%s' (password set at first sign-in)",
+    'Datenschutzfragen überspringen': 'skip privacy questions',
+    'keine automatische BitLocker-Verschlüsselung': 'no automatic BitLocker encryption',
     "Benötigtes Programm '%s' wurde nicht gefunden.": "Required program '%s' was not found.",
     'Befehl fehlgeschlagen (%d): %s\n%s': 'Command failed (%d): %s\n%s',
     'Gerät %s existiert nicht.': 'Device %s does not exist.',
@@ -623,63 +628,140 @@ def split_wim(wim, dst_dir, prog):
     log(_("Aufgeteilt in: ") + ", ".join(parts))
 
 
-AUTOUNATTEND_HEAD = """<?xml version="1.0" encoding="utf-8"?>
-<!-- Created by WinUSB-SteamOS -->
-<unattend xmlns="urn:schemas-microsoft-com:unattend">
-"""
+COMP_ATTRS = ('processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" '
+              'versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" '
+              'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"')
 
-AUTOUNATTEND_PE = """  <settings pass="windowsPE">
-    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-      <RunSynchronous>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>1</Order>
-          <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>2</Order>
-          <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>3</Order>
-          <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>4</Order>
-          <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>5</Order>
-          <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-      </RunSynchronous>
-    </component>
-  </settings>
-"""
-
-AUTOUNATTEND_NRO = """  <settings pass="specialize">
-    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-      <RunSynchronous>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>1</Order>
-          <Path>reg add HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE /v BypassNRO /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-      </RunSynchronous>
-    </component>
-  </settings>
-"""
+RESERVED_USERS = {"administrator", "admin", "guest", "defaultaccount", "system", "user", "users",
+                  "wdagutilityaccount", "none", "everyone", "network", "local", "service"}
 
 
-def write_autounattend(usb_root, bypass_hw, local_account):
+def sanitize_username(name):
+    """Same rules Rufus uses: no special chars, max 20 chars, no reserved names."""
+    name = (name or "").strip()
+    name = "".join(c for c in name if c not in '/\\[]:;|=,+*?<>"@%' and ord(c) >= 32)
+    name = name.strip(" .")[:20].strip(" .")
+    if not name:
+        raise WorkerError(_("Ungültiger Benutzername für das lokale Konto."))
+    if name.lower() in RESERVED_USERS:
+        raise WorkerError(_("Der Benutzername '%s' ist in Windows reserviert. Bitte einen anderen wählen.") % name)
+    return name
+
+
+def xml_escape(s):
+    return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+             .replace('"', "&quot;").replace("'", "&apos;"))
+
+
+def build_autounattend(bypass_hw=False, no_online=False, username=None, skip_privacy=False,
+                       no_bitlocker=False):
+    """autounattend.xml in the style of Rufus (wue.c).
+
+    The windowsPE pass is ALWAYS written and always contains an (empty) product key:
+    without it Windows Setup stops with "cannot read the <ProductKey> setting", and
+    without a windowsPE pass the later passes are ignored.
+    """
+    A = COMP_ATTRS
+    x = ['<?xml version="1.0" encoding="utf-8"?>',
+         "<!-- Created by WinUSB-SteamOS -->",
+         '<unattend xmlns="urn:schemas-microsoft-com:unattend">']
+
+    # ---- windowsPE
+    x += ['  <settings pass="windowsPE">',
+          '    <component name="Microsoft-Windows-Setup" %s>' % A,
+          "      <UserData>",
+          "        <ProductKey>",
+          "          <Key />",
+          "        </ProductKey>"]
+    if skip_privacy:
+        x.append("        <AcceptEula>true</AcceptEula>")
+    x.append("      </UserData>")
+    if bypass_hw:
+        x.append("      <RunSynchronous>")
+        for i, v in enumerate(("BypassTPMCheck", "BypassSecureBootCheck", "BypassRAMCheck",
+                               "BypassCPUCheck", "BypassStorageCheck"), 1):
+            x += ['        <RunSynchronousCommand wcm:action="add">',
+                  "          <Order>%d</Order>" % i,
+                  "          <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v %s /t REG_DWORD /d 1 /f</Path>" % v,
+                  "        </RunSynchronousCommand>"]
+        x.append("      </RunSynchronous>")
+    x += ["    </component>", "  </settings>"]
+
+    # ---- offlineServicing (BitLocker device encryption off)
+    if no_bitlocker:
+        x += ['  <settings pass="offlineServicing">',
+              '    <component name="Microsoft-Windows-SecureStartup-FilterDriver" %s>' % A,
+              "      <PreventDeviceEncryption>true</PreventDeviceEncryption>",
+              "    </component>",
+              '    <component name="Microsoft-Windows-EnhancedStorage-Adm" %s>' % A,
+              "      <TCGSecurityActivationDisabled>1</TCGSecurityActivationDisabled>",
+              "    </component>",
+              "  </settings>"]
+
+    # ---- specialize (allow setup without Microsoft account)
+    if no_online or username:
+        x += ['  <settings pass="specialize">',
+              '    <component name="Microsoft-Windows-Deployment" %s>' % A,
+              "      <RunSynchronous>",
+              '        <RunSynchronousCommand wcm:action="add">',
+              "          <Order>1</Order>",
+              "          <Path>reg add HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE /v BypassNRO /t REG_DWORD /d 1 /f</Path>",
+              "        </RunSynchronousCommand>",
+              "      </RunSynchronous>",
+              "    </component>",
+              "  </settings>"]
+
+    # ---- oobeSystem (local account, privacy)
+    if username or skip_privacy:
+        x += ['  <settings pass="oobeSystem">',
+              '    <component name="Microsoft-Windows-Shell-Setup" %s>' % A]
+        if username:
+            u = xml_escape(username)
+            x += ["      <FirstLogonCommands>",
+                  '        <SynchronousCommand wcm:action="add">',
+                  "          <Order>1</Order>",
+                  "          <CommandLine>net user &quot;%s&quot; /logonpasswordchg:yes</CommandLine>" % u,
+                  "        </SynchronousCommand>",
+                  '        <SynchronousCommand wcm:action="add">',
+                  "          <Order>2</Order>",
+                  "          <CommandLine>net accounts /maxpwage:unlimited</CommandLine>",
+                  "        </SynchronousCommand>",
+                  "      </FirstLogonCommands>"]
+        x.append("      <OOBE>")
+        if skip_privacy:
+            x += ["        <HideEULAPage>true</HideEULAPage>",
+                  "        <ProtectYourPC>3</ProtectYourPC>"]
+        if username:
+            x.append("        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>")
+        x.append("      </OOBE>")
+        if username:
+            # blank password: Microsoft wants Base64(UTF-16LE(password + "Password"))
+            x += ["      <UserAccounts>",
+                  "        <LocalAccounts>",
+                  '          <LocalAccount wcm:action="add">',
+                  "            <Name>%s</Name>" % u,
+                  "            <DisplayName>%s</DisplayName>" % u,
+                  "            <Group>Administrators;Power Users</Group>",
+                  "            <Password>",
+                  "              <Value>UABhAHMAcwB3AG8AcgBkAA==</Value>",
+                  "              <PlainText>false</PlainText>",
+                  "            </Password>",
+                  "          </LocalAccount>",
+                  "        </LocalAccounts>",
+                  "      </UserAccounts>"]
+        x += ["    </component>", "  </settings>"]
+
+    x.append("</unattend>")
+    return "\n".join(x) + "\n"
+
+
+def write_autounattend(usb_root, bypass_hw=False, no_online=False, username=None,
+                       skip_privacy=False, no_bitlocker=False):
     existing = find_ci(Path(usb_root), "autounattend.xml")
     if existing is not None:
         log(_("Die ISO bringt bereits eine autounattend.xml mit – wird nicht überschrieben."))
         return
-    xml = AUTOUNATTEND_HEAD
-    if bypass_hw:
-        xml += AUTOUNATTEND_PE
-    if local_account:
-        xml += AUTOUNATTEND_NRO
-    xml += "</unattend>\n"
+    xml = build_autounattend(bypass_hw, no_online, username, skip_privacy, no_bitlocker)
     path = os.path.join(usb_root, "autounattend.xml")
     with open(path, "w", encoding="utf-8", newline="\r\n") as f:
         f.write(xml)
@@ -688,8 +770,14 @@ def write_autounattend(usb_root, bypass_hw, local_account):
     what = []
     if bypass_hw:
         what.append(_("TPM/Secure-Boot/RAM/CPU-Prüfung umgehen"))
-    if local_account:
+    if username:
+        what.append(_("lokales Konto '%s' (Passwort beim ersten Anmelden festlegen)") % username)
+    elif no_online:
         what.append(_("Einrichtung ohne Microsoft-Konto"))
+    if skip_privacy:
+        what.append(_("Datenschutzfragen überspringen"))
+    if no_bitlocker:
+        what.append(_("keine automatische BitLocker-Verschlüsselung"))
     log(_("autounattend.xml geschrieben: ") + ", ".join(what))
 
 
@@ -904,13 +992,16 @@ def scan_iso(root):
     return files, total
 
 
-def make_stick(iso, dev, bypass_hw=False, local_account=False, force_any=False):
+def make_stick(iso, dev, bypass_hw=False, local_account=False, force_any=False,
+               username=None, skip_privacy=False, no_bitlocker=False):
     if os.geteuid() != 0:
         raise WorkerError(_("Root-Rechte benötigt."))
     iso = os.path.realpath(iso)
     if not os.path.isfile(iso):
         raise WorkerError(_("ISO-Datei nicht gefunden: %s") % iso)
 
+    if username:
+        username = sanitize_username(username)
     progress(0, _("Prüfe Gerät"), force=True)
     dsys = validate_target(dev, force_any)
     need_tool("mkfs.fat")
@@ -985,8 +1076,8 @@ def make_stick(iso, dev, bypass_hw=False, local_account=False, force_any=False):
             dst_dir = os.path.join(usb_mnt, os.path.dirname(split_rel))
             split_wim(os.path.join(iso_mnt, split_rel), dst_dir, prog)
 
-        if bypass_hw or local_account:
-            write_autounattend(usb_mnt, bypass_hw, local_account)
+        if bypass_hw or local_account or username or skip_privacy or no_bitlocker:
+            write_autounattend(usb_mnt, bypass_hw, local_account, username, skip_privacy, no_bitlocker)
 
         progress(97.5, _("Schreibe Puffer auf den Stick"), force=True)
         log(_("Schreibe restliche Daten auf den Stick (sync) ..."))
@@ -1028,6 +1119,13 @@ def main():
                     help="Windows 11: TPM-/Secure-Boot-/RAM-/CPU-Prüfung umgehen")
     ap.add_argument("--local-account", action="store_true",
                     help="Windows 11: Einrichtung ohne Microsoft-Konto erlauben")
+    ap.add_argument("--user", metavar="NAME",
+                    help="Windows: lokales Konto anlegen / create local account (Passwort beim ersten Login)")
+    ap.add_argument("--skip-privacy", action="store_true",
+                    help="Windows: Datenschutzfragen und Lizenzseite überspringen / skip privacy questions")
+    ap.add_argument("--no-bitlocker", action="store_true",
+                    help="Windows: automatische BitLocker-Verschlüsselung verhindern / prevent device encryption")
+    ap.add_argument("--print-unattend", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--yes", action="store_true", help="nicht nachfragen (CLI)")
     ap.add_argument("--force-any-device", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--lang", choices=("de", "en"), help="Sprache / language")
@@ -1038,6 +1136,15 @@ def main():
     mode = args.mode if args.mode != "auto" else detect_mode(args.iso)
     if args.detect:
         print(mode)
+        return 0
+    if args.print_unattend:
+        try:
+            u = sanitize_username(args.user) if args.user else None
+        except WorkerError as e:
+            print(e, file=sys.stderr)
+            return 1
+        sys.stdout.write(build_autounattend(args.win11_bypass, args.local_account, u,
+                                            args.skip_privacy, args.no_bitlocker))
         return 0
 
     JSON_MODE = args.worker
@@ -1058,7 +1165,7 @@ def main():
             write_raw(args.iso, args.device, args.force_any_device, verify=not args.no_verify)
         else:
             make_stick(args.iso, args.device, args.win11_bypass, args.local_account,
-                       args.force_any_device)
+                       args.force_any_device, args.user, args.skip_privacy, args.no_bitlocker)
         if not JSON_MODE:
             print()
         return 0

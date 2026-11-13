@@ -222,10 +222,33 @@ class MainWindow(QMainWindow):
                                       "(für ältere PCs)",
                                       "Windows 11: bypass TPM, Secure Boot, RAM and CPU checks "
                                       "(for older PCs)"))
-        self.opt_local = QCheckBox(t("Windows 11: Einrichtung ohne Microsoft-Konto erlauben (lokales Konto)",
-                                     "Windows 11: allow setup without a Microsoft account (local account)"))
+        self.opt_local = QCheckBox(t("Lokales Konto anlegen (kein Microsoft-Konto nötig):",
+                                     "Create a local account (no Microsoft account needed):"))
+        self.account_edit = QLineEdit(str(SETTINGS.value("account_name", "") or ""))
+        self.account_edit.setPlaceholderText(t("Benutzername", "User name"))
+        self.account_edit.setMaxLength(20)
+        self.account_edit.setEnabled(False)
+        self.opt_local.toggled.connect(self.account_edit.setEnabled)
+        self.opt_local.setToolTip(t("Wie bei Rufus: Das Konto wird ohne Passwort angelegt, beim ersten "
+                                    "Anmelden legst du das Passwort fest.",
+                                    "Like Rufus: the account is created without a password, you set "
+                                    "the password at first sign-in."))
+        self.account_row = QWidget()
+        hl = QHBoxLayout(self.account_row)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.addWidget(self.opt_local)
+        hl.addWidget(self.account_edit, 1)
+        self.opt_privacy = QCheckBox(t("Datenschutzfragen und Lizenzseite überspringen",
+                                       "Skip privacy questions and license page"))
+        self.opt_nobitlocker = QCheckBox(t("Automatische BitLocker-Verschlüsselung verhindern",
+                                           "Prevent automatic BitLocker device encryption"))
+        for w_, key in ((self.opt_bypass, "opt_bypass"), (self.opt_local, "opt_local"),
+                        (self.opt_privacy, "opt_privacy"), (self.opt_nobitlocker, "opt_nobitlocker")):
+            w_.setChecked(str(SETTINGS.value(key, "false")).lower() == "true")
         v3.addWidget(self.opt_bypass)
-        v3.addWidget(self.opt_local)
+        v3.addWidget(self.account_row)
+        v3.addWidget(self.opt_privacy)
+        v3.addWidget(self.opt_nobitlocker)
         self.opt_verify = QCheckBox(t("Nach dem Schreiben überprüfen (empfohlen)", "Verify after writing (recommended)"))
         self.opt_verify.setChecked(True)
         v3.addWidget(self.opt_verify)
@@ -355,8 +378,8 @@ class MainWindow(QMainWindow):
         p = self.iso_edit.text()
         mode = self.effective_mode()
         win = mode == "windows"
-        self.opt_bypass.setVisible(win)
-        self.opt_local.setVisible(win)
+        for w_ in (self.opt_bypass, self.account_row, self.opt_privacy, self.opt_nobitlocker):
+            w_.setVisible(win)
         self.opt_verify.setVisible(not win)
         if not p:
             self.mode_hint.setText("")
@@ -401,7 +424,9 @@ class MainWindow(QMainWindow):
         busy = self.proc is not None
         self.start_btn.setEnabled(not busy and bool(self.iso_edit.text()) and
                                   self.dev_combo.count() > 0)
+        self.account_edit.setEnabled(not busy and self.opt_local.isChecked())
         for w in (self.iso_btn, self.dev_combo, self.refresh_btn, self.opt_bypass, self.opt_local,
+                  self.opt_privacy, self.opt_nobitlocker,
                   self.opt_verify, self.mode_combo, self.lang_combo):
             w.setEnabled(not busy)
         self.cancel_btn.setEnabled(busy)
@@ -438,6 +463,9 @@ class MainWindow(QMainWindow):
         w.mode_combo.setCurrentIndex(self.mode_combo.currentIndex())
         w.opt_bypass.setChecked(self.opt_bypass.isChecked())
         w.opt_local.setChecked(self.opt_local.isChecked())
+        w.account_edit.setText(self.account_edit.text())
+        w.opt_privacy.setChecked(self.opt_privacy.isChecked())
+        w.opt_nobitlocker.setChecked(self.opt_nobitlocker.isChecked())
         w.opt_verify.setChecked(self.opt_verify.isChecked())
         w.after_combo.setCurrentIndex(self.after_combo.currentIndex())
         idx = w.dev_combo.findData(self.dev_combo.currentData())
@@ -510,8 +538,12 @@ class MainWindow(QMainWindow):
         if mode == "windows":
             if self.opt_bypass.isChecked():
                 args.append("--win11-bypass")
-            if self.opt_local.isChecked():
-                args.append("--local-account")
+            if self.opt_local.isChecked() and self.account_edit.text().strip():
+                args += ["--local-account", "--user", self.account_edit.text().strip()]
+            if self.opt_privacy.isChecked():
+                args.append("--skip-privacy")
+            if self.opt_nobitlocker.isChecked():
+                args.append("--no-bitlocker")
         elif not self.opt_verify.isChecked():
             args.append("--no-verify")
 
@@ -534,6 +566,24 @@ class MainWindow(QMainWindow):
         dev = self.dev_combo.currentData()
         if not iso or not dev:
             return
+        if self.effective_mode() == "windows" and self.opt_local.isChecked():
+            name = self.account_edit.text().strip()
+            if not name or any(c in name for c in '/\\[]:;|=,+*?<>"@%') or \
+                    name.lower() in ("administrator", "admin", "guest", "defaultaccount", "system",
+                                     "user", "users", "wdagutilityaccount"):
+                QMessageBox.warning(self, APP_NAME,
+                                    t("Bitte einen gültigen Benutzernamen für das lokale Konto eingeben "
+                                      "(keine Sonderzeichen wie / \\ : * ? \" < > | @, nicht "
+                                      "\"Administrator\" oder \"Gast\").",
+                                      "Please enter a valid user name for the local account (no special "
+                                      "characters like / \\ : * ? \" < > | @, not \"Administrator\" "
+                                      "or \"Guest\")."))
+                self.account_edit.setFocus()
+                return
+        for w_, key in ((self.opt_bypass, "opt_bypass"), (self.opt_local, "opt_local"),
+                        (self.opt_privacy, "opt_privacy"), (self.opt_nobitlocker, "opt_nobitlocker")):
+            SETTINGS.setValue(key, "true" if w_.isChecked() else "false")
+        SETTINGS.setValue("account_name", self.account_edit.text().strip())
         dinfo = next((d for d in self.devices if d["path"] == dev), None)
         iso_size = os.path.getsize(iso)
         compressed = iso.lower().endswith((".bz2", ".xz", ".gz", ".zip"))
