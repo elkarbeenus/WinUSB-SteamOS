@@ -72,8 +72,6 @@ docker run --rm --privileged -v /dev:/dev -v "$WORK:$WORK" -v "$APPIMAGE:/app/Wi
         cd /tmp
         APPIMAGE_EXTRACT_AND_RUN=1 /app/WinUSB.AppImage --cli --iso '$WORK/test.iso' --device '$LOOP' \
             --yes --force-any-device --win11-bypass --local-account
-        echo
-        echo '--- JSON worker mode (what the GUI sees) ---'
     "
 
 step "Verify result"
@@ -99,7 +97,7 @@ for f in check/sources/install*.swm; do
     [ "$(stat -c %s "$f")" -lt 4294967295 ] || fail "$f too big for FAT32"
 done
 wimlib-imagex verify check/sources/install.swm --ref="check/sources/install*.swm" || fail "split WIM corrupt"
-wimlib-imagex info check/sources/install.swm --ref="check/sources/install*.swm" | grep -q "Windows 11 Pro" \
+wimlib-imagex info check/sources/install.swm | grep -q "Windows 11 Pro" \
     || fail "image name lost"
 grep -q BypassTPMCheck check/autounattend.xml || fail "autounattend bypass missing"
 grep -q BypassNRO check/autounattend.xml || fail "autounattend NRO missing"
